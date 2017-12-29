@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import os
 
 from src.doc import Doc
 
@@ -16,10 +17,11 @@ class Corpus(object):
         if log:
             logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
-        data_dir = "../data/"
+        path_to_current_file = os.path.abspath(os.path.dirname(__file__))
+        data_dir = os.path.join(path_to_current_file, "../data/")
 
         self.docs = []
-        self.num_docs = 0
+        self.total_documents = 0
         self.times = []
         self.num_times = 0
         self.vocab_size = 0
@@ -40,7 +42,7 @@ class Corpus(object):
         logger.info("PROCESSED CORPUS")
         logger.info("Number of time points: " + str(self.num_times))
         logger.info("Number of authors: " + str(self.num_authors))
-        logger.info("Number of documents: " + str(self.num_docs))
+        logger.info("Number of documents: " + str(self.total_documents))
         logger.info("Total number of words: " + str(self.total_words))
         logger.info("Found ids for " + str(self.vocab_size) + " terms in vocabulary")
         logger.info("Number of documents skipped (no words): " + str(skipped_docs))
@@ -72,7 +74,7 @@ class Corpus(object):
                     continue
 
                 self.times.append(time_stamp)
-                self.num_docs += num_docs
+                self.total_documents += num_docs
 
                 for d in range(num_docs):
                     doc = Doc()
@@ -100,7 +102,7 @@ class Corpus(object):
                     # extract words and corresponding counts in this document
                     word_counts = [[int(elt) for elt in wc.split(":")] for wc in fields[2:]]
                     if len(word_counts) == 0:
-                        self.num_docs -= 1
+                        self.total_documents -= 1
                         skipped_docs += 1
                         continue
 
@@ -136,4 +138,4 @@ class Corpus(object):
         return len(self.docs)
 
     def __str__(self):
-        return "Corpus with " + str(self.num_times) + " time periods, and " + str(self.num_docs) + " total documents."
+        return "Corpus with " + str(self.num_times) + " time periods, and " + str(self.total_documents) + " total documents."
