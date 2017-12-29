@@ -73,6 +73,27 @@ class DAPPER(object):
         if self.penalty < 0.0 or self.penalty > 0.5:
             raise ValueError("penalty parameter is recommended to be between [0, 0.5]")
 
+    def _check_corpora(self, train_corpus, test_corpus):
+        """
+        Check that corpus being tested on has the necessary same meta data as the
+        training corpus
+        :param train_corpus:
+        :param test_corpus:
+        :return:
+        """
+        if train_corpus.vocab != test_corpus.vocab:
+            raise ValueError("vocabularies for training and test sets must be equal")
+        if train_corpus.num_authors != test_corpus.num_authors:
+            raise ValueError("Training and test sets must have the same number of authors")
+
+        common_authors = train_corpus.author2id.items() & test_corpus.author2id.items()
+        if len(common_authors) != len(train_corpus.author2id):
+            raise ValueError("Training and test sets must have the same authors (and author2id lookup tables)")
+
+        # TODO should setup test corpus capable of having *fewer* time steps than training set
+        if train_corpus.num_times != test_corpus.num_times:
+            raise ValueError("Training and test sets must have the same number of time steps")
+
     def init_from_corpus(self, corpus):
         """
         initialize model based on the corpus that will be fit
@@ -87,7 +108,6 @@ class DAPPER(object):
         self.total_documents = corpus.total_documents
         self.total_words = corpus.total_words
         self.num_authors = corpus.num_authors
-        self.max_length = corpus.max_length
         self.vocab = np.array(corpus.vocab)
 
     def init_latent_vars(self):
@@ -429,7 +449,9 @@ class DAPPER(object):
         return lhood
 
     def compute_word_lhood(self, doc, log_phi):
-        lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.log_beta[:, doc.words])
+        # lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.log_beta[:, doc.words])
+        E_log_beta = dirichlet_expectation(self._lambda)
+        lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * E_log_beta[:, doc.words])
         return lhood
 
     def em_step_s(self, docs, total_docs):
@@ -576,15 +598,15 @@ class DAPPER(object):
                 if mean_change < 0.0001:
                     break
 
+            words_lhood_d = self.compute_word_lhood(doc, log_phi)
+            words_lhood += words_lhood_d
             # collect sufficient statistics
             if save_ss:
                 self.ss.update(doc, doc_m, doc_tau, log_phi)
 
-            # compute likelihoods
-            batch_lhood_d = self.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
-            batch_lhood += batch_lhood_d
-            words_lhood_d = self.compute_word_lhood(doc, log_phi)
-            words_lhood += words_lhood_d
+                # compute variational likelihoods
+                batch_lhood_d = self.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
+                batch_lhood += batch_lhood_d
 
             if SHOW_EVERY > 0 and doc.doc_id % SHOW_EVERY == 0:
                 logger.info("Variational parameters for document: {}, converged in {} steps".format(doc.doc_id, iters))
@@ -690,26 +712,27 @@ class DAPPER(object):
         Computes the average heldout log-likelihood
         """
         if self.num_workers > 1:
-            test_model_lhood, test_words_lhood = self.e_step_parallel(docs=test_corpus.docs, save_ss=False)
+            _, test_words_lhood = self.e_step_parallel(docs=test_corpus.docs, save_ss=False)
         else:
-            test_model_lhood, test_words_lhood = self.e_step(docs=test_corpus.docs, save_ss=False)
+            _, test_words_lhood = self.e_step(docs=test_corpus.docs, save_ss=False)
 
-        test_model_pwll = test_model_lhood / test_corpus.total_words
         test_words_pwll = test_words_lhood / test_corpus.total_words
-        logger.info('Test model log-lhood: {:.2f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f}'.format(
-            test_model_lhood, test_model_pwll, test_words_pwll))
-        return test_model_lhood, test_model_pwll, test_words_pwll
+        logger.info('Test words log-lhood: {:.1f}, words per-word log-lhood: {:.2f}'.format(
+            test_words_lhood, test_words_pwll))
+        return test_words_lhood, test_words_pwll
 
     def fit_predict(self, train_corpus, test_corpus, evaluate_every=None):
         """
         Computes the heldout-log likelihood on the test corpus after "evaluate_every" iterations
         (mini-batches) of training.
         """
-        # init from corpus
+        # initializarions from the training corpus
         self.init_from_corpus(train_corpus)
         self.init_latent_vars()
         self.init_beta_from_corpus(corpus=train_corpus)
         id2author = {y: x for x, y in train_corpus.author2id.items()}
+        # verify that the training and test corpora have same metadata
+        self._check_corpora(train_corpus=train_corpus, test_corpus=test_corpus)
 
         prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
         train_results = []
@@ -746,8 +769,8 @@ class DAPPER(object):
 
                 # test set evaluation:
                 if evaluate_every is not None and (batch_id + 1) % evaluate_every == 0 and (batch_id + 1) != num_batches:
-                    test_model_lhood, test_model_pwll, test_words_pwll = self.predict(test_corpus=test_corpus)
-                    test_results.append([self.total_epochs, batch_id, test_model_lhood, test_model_pwll, test_words_pwll, convergence, batch_time])
+                    test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
+                    test_results.append([self.total_epochs, batch_id, 0.0, 0.0, test_words_pwll, convergence, batch_time])
 
                 prev_train_model_lhood = train_model_lhood
 
@@ -757,12 +780,12 @@ class DAPPER(object):
             test_model_lhood, test_model_pwll, test_words_pwll = self.predict(test_corpus=test_corpus)
             log_str = """Epoch {}
                 train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
-                test model lhood:  {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
+                test words lhood:  {:.1f}, words per-word log-lhood: {:.2f},
                 convergence: {:.3f}, epoch time: {:.3f}, docs/hr {:.1f}
                 """
             logger.info(log_str.format(self.total_epochs,
                                        train_model_lhood, train_model_pwll, train_words_pwll,
-                                       test_model_lhood, test_model_pwll, test_words_pwll,
+                                       test_words_lhood, test_words_pwll,
                                        convergence, epoch_time, (60.0 ** 2) * train_corpus.total_documents / epoch_time))
 
         # print last stats
@@ -773,13 +796,13 @@ class DAPPER(object):
         self.print_topics(topn=8)
         log_str = """Finished after {} EM iterations ({} epochs)
             train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
-            test model lhood:  {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
+            test words lhood:  {:.1f}, words per-word log-lhood: {:.2f},
             total time (sec): {:.1f}, avg docs/hr {:.1f}
             """
         docs_per_hour = (self.total_epochs + 1) * (60.0 ** 2) * train_corpus.total_documents / total_time
         logger.info(log_str.format(self.current_em_iter, self.total_epochs,
                                    train_model_lhood, train_model_pwll, train_words_pwll,
-                                   test_model_lhood, test_model_pwll, test_words_pwll,
+                                   test_words_lhood, test_words_pwll,
                                    total_time, docs_per_hour))
         self.print_convergence(train_results, show_batches=False)
         return train_results, test_results

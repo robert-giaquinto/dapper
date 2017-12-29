@@ -17,7 +17,8 @@ def main():
     np.random.seed(2018)
 
     train_cb = Corpus(input_file="train_authors_apt_cv0.dat", vocab_file="train_authors_apt_cv0_vocab.dat")
-    test_cb = Corpus(input_file="test_authors_apt_cv0.dat", vocab_file="train_authors_apt_cv0_vocab.dat")
+    test_cb = Corpus(input_file="test_authors_apt_cv0.dat", vocab_file="train_authors_apt_cv0_vocab.dat",
+                     author2id=train_cb.author2id)
     id2author = {y: x for x, y in train_cb.author2id.items()}
 
     num_topics = 20
@@ -25,7 +26,7 @@ def main():
 
     em_iter = 25
     e_iter = 30
-    num_workers = 3
+    num_workers = 1
 
     batch_size = 256
     learning_offset = 5
@@ -47,7 +48,7 @@ def main():
 
     # train_results = dap.fit(corpus=cb)
     # test_lhood, test_pwll = dap.predict(test_corpus=cb)
-    train_results, test_results = dap.fit_predict(train_corpus=train_cb, test_corpus=test_cb, evaluate_every=None)
+    train_results, test_results = dap.fit_predict(train_corpus=train_cb, test_corpus=test_cb, evaluate_every=50)
     logger.info(dap)
 
     model_sig = "K{}_P{}_bs{}_lo{}_ld{}_pn{}_mn{}_penalty{}_{}_epochs{}_cpu{}_{}.txt".format(

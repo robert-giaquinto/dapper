@@ -6,6 +6,8 @@ from src.doc import Doc
 
 logger = logging.getLogger(__name__)
 
+
+# TODO should setup test corpus capable of having *fewer* time steps than training set
 class Corpus(object):
     """
     Container of corpus information
@@ -13,7 +15,7 @@ class Corpus(object):
     For now, just store entire corpus in memory
     TODO: provide iterators over corpus, do one pass over file to collect meta information
     """
-    def __init__(self, input_file="cb_small.txt", vocab_file="cb_small_vocab.txt", log=True):
+    def __init__(self, input_file="cb_small.txt", vocab_file="cb_small_vocab.txt", author2id=None, log=True):
         if log:
             logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -25,9 +27,12 @@ class Corpus(object):
         self.times = []
         self.num_times = 0
         self.vocab_size = 0
-        self.max_length = 0
-        self.num_authors = 0
-        self.author2id = {}
+        if author2id is None:
+            self.author2id = {}
+            self.num_authors = 0
+        else:
+            self.author2id = author2id
+            self.num_authors = len(author2id)
         self.vocab = []
         self.input_file = data_dir + input_file
         self.num_docs_per_time = []
@@ -54,7 +59,6 @@ class Corpus(object):
         """
         Main processing method for reading and parsing information in the file
         """
-        self.num_authors = 0
         skipped_docs = 0
         skipped_times = 0
         doc_id = 0
@@ -92,12 +96,11 @@ class Corpus(object):
                         self.author2id[doc.author] = self.num_authors
                         self.num_authors += 1
 
-                    # save author id
+                    # save author id by looking up author name
                     doc.author_id = self.author2id[doc.author]
 
+                    # length of document (i.e. number of unique terms
                     doc.num_terms = int(fields[1])
-                    if self.max_length < doc.num_terms:
-                        self.max_length = doc.num_terms
 
                     # extract words and corresponding counts in this document
                     word_counts = [[int(elt) for elt in wc.split(":")] for wc in fields[2:]]

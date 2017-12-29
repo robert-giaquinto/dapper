@@ -16,13 +16,14 @@ def main():
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
     np.random.seed(2018)
 
-    cb = Corpus()
-    id2author = {y: x for x, y in cb.author2id.items()}
+    train_cb = Corpus()
+    test_cb = Corpus(author2id=train_cb.author2id)
+    id2author = {y: x for x, y in train_cb.author2id.items()}
 
     num_topics = 10
     num_personas = 4
 
-    em_iter = 1
+    em_iter = 5
     e_iter = 30
     num_workers = 1
 
@@ -52,9 +53,9 @@ def main():
     # logger.info(dap_copy)
     # del dap_copy
 
-    train_results = dap.fit(corpus=cb)
+    # train_results = dap.fit(corpus=train_cb)
     # test_lhood, test_pwll = dap.predict(test_corpus=cb)
-    # train_results, test_results = dap.fit_predict(train_corpus=cb, test_corpus=cb, evaluate_every=None)
+    train_results, test_results = dap.fit_predict(train_corpus=train_cb, test_corpus=test_cb, evaluate_every=10)
     logger.info(dap)
 
 
