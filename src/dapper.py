@@ -659,20 +659,21 @@ class DAPPER(object):
                 logger.info(log_str.format(self.total_epochs, batch_id,
                                            train_model_lhood, train_model_pwll, train_words_pwll,
                                            convergence, batch_time))
-                if batch_id % 20 == 0:
-                    for p in range(self.num_personas):
-                        logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-                    self.print_author_personas(id2author=id2author)
-                    self.print_topics(topn=8)
 
                 prev_train_model_lhood = train_model_lhood
+
+            # report stats after each epoch
+            for p in range(self.num_personas):
+                logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
+            self.print_author_personas(max_show=25, id2author=id2author)
+            self.print_topics(topn=8)
             self.total_epochs += 1
 
         # print last stats
         total_time = time.process_time() - total_time
         for p in range(self.num_personas):
             logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-        self.print_author_personas(id2author=id2author)
+        self.print_author_personas(max_show=25, id2author=id2author)
         self.print_topics(topn=8)
         self.print_convergence(train_results, show_batches=True)
         log_str = """Finished after {} EM iterations ({} epochs)
@@ -685,13 +686,18 @@ class DAPPER(object):
                                    total_time, docs_per_hour))
         return train_results
 
-    def init_beta_from_corpus(self, corpus, num_docs_init=500):
+    def init_beta_from_corpus(self, corpus, num_docs_init=None):
         """
         initialize model for training using the corpus
         :param corpus:
         :param num_docs_init:
         :return:
         """
+        if num_docs_init is None:
+            num_docs_init = min(500, int(round(corpus.total_documents * 0.01)))
+        if num_docs_init == 0:
+            return
+
         logger.info("Initializing beta from {} random documents in the corpus for each topics".format(num_docs_init))
         for k in range(self.num_topics):
             doc_ids = np.sort(np.random.randint(0, corpus.total_documents, num_docs_init))
@@ -777,7 +783,7 @@ class DAPPER(object):
             # always evaluate the log-likelihood at the end of the epoch
             self.total_epochs += 1
             epoch_time = time.process_time() - epoch_time
-            test_model_lhood, test_model_pwll, test_words_pwll = self.predict(test_corpus=test_corpus)
+            test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
             log_str = """Epoch {}
                 train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
                 test words lhood:  {:.1f}, words per-word log-lhood: {:.2f},
