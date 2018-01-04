@@ -1,9 +1,6 @@
 venv/*
 DAPPER.egg-info/
-scripts/log/*
 .idea/*
-data/*
-results/*
 *.pyc
 *.dat
 *~
