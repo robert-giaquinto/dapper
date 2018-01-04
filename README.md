@@ -58,4 +58,4 @@ See /docs/dap_2018_arxiv.pdf for technical information on the dynamic author-per
 * `docs/` - Documentation on the model, including derivation and papers related to the model.
 * `log/` - Log files from running the programs.
 * `scripts/` - Bash scripts for running programs.
-* `dapper/` - Directory containing various sub-packages of the project and any files shared across sub-packages.
+* `src/` - Directory containing various sub-packages of the project and any files shared across sub-packages.
