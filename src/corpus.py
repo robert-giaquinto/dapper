@@ -19,9 +19,6 @@ class Corpus(object):
         if log:
             logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
-        path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-        data_dir = os.path.join(path_to_current_file, "../data/")
-
         self.docs = []
         self.total_documents = 0
         self.times = []
@@ -34,7 +31,7 @@ class Corpus(object):
             self.author2id = author2id
             self.num_authors = len(author2id)
         self.vocab = []
-        self.input_file = data_dir + input_file
+        self.input_file = input_file
         self.num_docs_per_time = []
         self.total_words = 0
 
@@ -42,7 +39,7 @@ class Corpus(object):
         skipped_docs, skipped_times = self.read_file()
 
         # read and process the vocabulary file
-        self.read_vocab(data_dir + vocab_file)
+        self.read_vocab(vocab_file)
 
         logger.info("PROCESSED CORPUS")
         logger.info("Number of time points: " + str(self.num_times))

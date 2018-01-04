@@ -21,7 +21,7 @@ class DAPPER(object):
     """
 
     def __init__(self, num_topics, num_personas,
-                 process_noise=0.2, measurement_noise=0.8, penalty=0.0, normalization="sum",
+                 process_noise=0.2, measurement_noise=0.8, regularization=0.0, normalization="sum",
                  em_max_iter=10, em_convergence=1e-03, step_size=0.7, queue_size=10,
                  local_param_iter=50, batch_size=-1, learning_offset=10, learning_decay=0.7,
                  num_workers=1):
@@ -32,7 +32,7 @@ class DAPPER(object):
 
         self.process_noise = process_noise
         self.measurement_noise = measurement_noise
-        self.penalty = penalty
+        self.regularization = regularization
         self.normalization = normalization
         self.num_workers = num_workers
 
@@ -70,8 +70,8 @@ class DAPPER(object):
         if self.measurement_noise < 0:
             raise ValueError(
                 "process noise must be positive (recommended to be between 2 to 10 times process_noise).")
-        if self.penalty < 0.0 or self.penalty > 0.5:
-            raise ValueError("penalty parameter is recommended to be between [0, 0.5]")
+        if self.regularization < 0.0 or self.regularization > 0.5:
+            raise ValueError("regularization parameter is recommended to be between [0, 0.5]")
 
     def _check_corpora(self, train_corpus, test_corpus):
         """
@@ -109,11 +109,9 @@ class DAPPER(object):
         self.total_words = corpus.total_words
         self.num_authors = corpus.num_authors
         self.vocab = np.array(corpus.vocab)
+        self.id2author = {y: x for x, y in corpus.author2id.items()}
 
     def init_latent_vars(self):
-        self.regularization = (1.0 - np.tril(np.ones((self.num_personas, self.num_personas)))) *\
-                              (self.penalty / self.num_personas)
-
         # initialize matrices
         self.omega = np.ones(self.num_personas) * (1.0 / self.num_personas)
         self._delta = np.random.gamma(500., 0.1, (self.num_authors, self.num_personas))
@@ -201,7 +199,7 @@ class DAPPER(object):
 
         # topic maximization
         if self.queue_size > 1:
-            self.ss_queue.append(self.total_documents * self.ss.beta / self.batch_size)
+            self.ss_queue.append(self.total_documents * self.ss.beta / batch_size)
             if len(self.ss_queue) < self.queue_size:
                 self.beta_ss = sum(self.ss_queue) / len(self.ss_queue)
             else:
@@ -286,9 +284,9 @@ class DAPPER(object):
                 b = alpha_hat[t-1, :, :] + self.ss.alpha[t, :, :] - self.ss.x[t, :]
 
             denom = self.ss.x2[t, :] + 1.0
-            if self.penalty > 0:
+            if self.regularization > 0:
                 A = np.ones((self.num_personas, self.num_personas))
-                A *= (self.penalty / self.num_personas) * num_docs_per_time[t]
+                A *= (self.regularization / self.num_personas) * num_docs_per_time[t]
                 A[np.diag_indices_from(A)] = denom
                 try:
                     alpha_hat[t, :, :] = np.linalg.solve(A, b.T).T
@@ -473,7 +471,7 @@ class DAPPER(object):
         clock_e_step = time.process_time() - clock_e_step
         doc_lhood = batch_lhood * total_docs / batch_size
 
-        # count docs per timestep in this batch for adjusting the penalty
+        # count docs per timestep in this batch for adjusting the regularization
         num_docs_per_time = [0] * self.num_times
         for d in docs:
             time_id = d.time_id
@@ -595,7 +593,7 @@ class DAPPER(object):
                 doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
                 mean_change = np.mean(abs(doc_m - prev_doc_m))
-                if mean_change < 0.0001:
+                if mean_change < self.em_convergence:
                     break
 
             words_lhood_d = self.compute_word_lhood(doc, log_phi)
@@ -631,7 +629,6 @@ class DAPPER(object):
         self.init_from_corpus(corpus)
         self.init_latent_vars()
         self.init_beta_from_corpus(corpus=corpus)
-        id2author = {y: x for x, y in corpus.author2id.items()}
 
         prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
         train_results = []
@@ -665,7 +662,7 @@ class DAPPER(object):
             # report stats after each epoch
             for p in range(self.num_personas):
                 logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-            self.print_author_personas(max_show=25, id2author=id2author)
+            self.print_author_personas(max_show=25)
             self.print_topics(topn=8)
             self.total_epochs += 1
 
@@ -673,7 +670,7 @@ class DAPPER(object):
         total_time = time.process_time() - total_time
         for p in range(self.num_personas):
             logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-        self.print_author_personas(max_show=25, id2author=id2author)
+        self.print_author_personas(max_show=25)
         self.print_topics(topn=8)
         self.print_convergence(train_results, show_batches=True)
         log_str = """Finished after {} EM iterations ({} epochs)
@@ -736,7 +733,6 @@ class DAPPER(object):
         self.init_from_corpus(train_corpus)
         self.init_latent_vars()
         self.init_beta_from_corpus(corpus=train_corpus)
-        id2author = {y: x for x, y in train_corpus.author2id.items()}
         # verify that the training and test corpora have same metadata
         self._check_corpora(train_corpus=train_corpus, test_corpus=test_corpus)
 
@@ -770,7 +766,7 @@ class DAPPER(object):
                 if batch_id % 20 == 0:
                     # for p in range(self.num_personas):
                     #     logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-                    # self.print_author_personas(id2author=id2author)
+                    # self.print_author_personas()
                     self.print_topics(topn=8)
 
                 # test set evaluation:
@@ -798,7 +794,7 @@ class DAPPER(object):
         total_time = time.process_time() - total_time
         for p in range(self.num_personas):
             logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-        self.print_author_personas(id2author=id2author)
+        self.print_author_personas()
         self.print_topics(topn=8)
         log_str = """Finished after {} EM iterations ({} epochs)
             train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
@@ -821,11 +817,8 @@ class DAPPER(object):
                 logger.info("{}\t\t{}\t\t{:.1f}\t{:.2f}\t\t{:.2f}\t\t{:.4f}\t\t{:.2f}".format(
                     em_iter, batch_id, model_lhood, model_pwll, words_pwll, convergence, batch_time))
 
-    def print_author_personas(self, max_show=10, id2author=None):
-        if id2author is not None:
-            max_key_len = max([len(k) for k in id2author.values()])
-        else:
-            max_key_len = 10
+    def print_author_personas(self, max_show=10):
+        max_key_len = max([len(k) for k in self.id2author.values()])
 
         # kappa = np.exp(self.E_log_kappa)
         # kappa /= np.sum(kappa, axis=1, keepdims=True)
@@ -836,10 +829,7 @@ class DAPPER(object):
         logger.info("Author{} \t{}".format(spaces, '\t'.join(['p' + str(i) for i in range(self.num_personas)])))
         logger.info('-' * (max_key_len + 10 * self.num_personas))
         for author_id in range(self.num_authors):
-            if id2author is not None:
-                author = id2author[author_id]
-            else:
-                author = str(author_id)
+            author = self.id2author[author_id]
             pad = ' ' * (max_key_len - len(author))
             if author_id == self.num_authors - 1:
                 logger.info(author + pad + "\t" + "\t".join([str(round(k, 2)) for k in kappa[author_id, :]]) + '\n')
@@ -896,7 +886,7 @@ class DAPPER(object):
                 topic_ = ', '.join([w for w, p in beta[k]])
                 f.write("topic #{} ({:.2f}): {}\n".format(k, self.mu0[k], topic_))
 
-    def save_author_personas(self, filename, id2author=None):
+    def save_author_personas(self, filename):
         # kappa = np.exp(self.E_log_kappa)
         # kappa /= np.sum(kappa, axis=1, keepdims=True)
         kappa = self._delta / np.sum(self._delta, axis=1, keepdims=True)
@@ -904,10 +894,7 @@ class DAPPER(object):
         with open(filename, "w") as f:
             f.write("author\t" + "\t".join(["persona" + str(i) for i in range(self.num_personas)]) + "\n")
             for author_id in range(self.num_authors):
-                if id2author is not None:
-                    author = id2author[author_id]
-                else:
-                    author = str(author_id)
+                author = self.id2author[author_id]
                 f.write(author + "\t" + "\t".join([str(round(k, 7)) for k in kappa[author_id]]) + "\n")
 
     def save_persona_topics(self, filename):
@@ -946,7 +933,7 @@ class DAPPER(object):
             max em iterations: {}
             em convergence: {:.2f}
             local parameter max iterations: {}
-            """.format(self.penalty, self.num_topics, self.num_personas,
+            """.format(self.regularization, self.num_topics, self.num_personas,
                        self.measurement_noise, self.process_noise,
                        self.queue_size,
                        self.batch_size, self.learning_offset, self.learning_decay, self.step_size,
@@ -1004,7 +991,7 @@ def _doc_e_step_worker(input_queue, result_queue):
                 doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
                 mean_change = np.mean(abs(doc_m - prev_doc_m))
-                if mean_change < 0.0001:
+                if mean_change < dap.em_convergence:
                     break
 
             if save_ss:
