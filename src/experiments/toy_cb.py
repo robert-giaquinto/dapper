@@ -28,7 +28,7 @@ def main():
     e_iter = 30
     em_convergence = 1e-4
 
-    num_workers = 2
+    num_workers = 1
 
     batch_size = 256
     queue_size = 1

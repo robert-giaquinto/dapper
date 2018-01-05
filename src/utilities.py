@@ -48,7 +48,7 @@ def dirichlet_expectation(dirichlet_parameter):
     """
     if len(dirichlet_parameter.shape) == 1:
         return psi(dirichlet_parameter) - psi(np.sum(dirichlet_parameter))
-    return psi(dirichlet_parameter) - psi(np.sum(dirichlet_parameter, 1))[:, np.newaxis]
+    return psi(dirichlet_parameter) - psi(np.sum(dirichlet_parameter, axis=1, keepdims=True))
 
 
 def matrix2str(mat, num_digits=2):
@@ -64,6 +64,6 @@ def matrix2str(mat, num_digits=2):
         s = '{:.' + str(num_digits) + '}'
         # rval += '\t'.join([s.format(round(elt, num_digits)) for elt in row]) + '\n'
         fpad = ['' if round(elt, num_digits) < 0 else ' ' for elt in row]
-        bpad = [' ' * (1 + 7 - len(str(np.abs(round(elt, num_digits))))) for elt in row]
+        bpad = [' ' * (7 - len(str(np.abs(round(elt, num_digits))))) for elt in row]
         rval += ''.join([f + s.format(round(elt, num_digits)) + b for elt, f, b in zip(row, fpad, bpad)]) + '\n'
     return rval

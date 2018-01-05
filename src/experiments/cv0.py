@@ -19,13 +19,15 @@ def main():
     parser.add_argument('--test_file', type=str, help='Path to testing data file. If None, no prediction is run')
     parser.add_argument('--vocab_file', type=str, help='Path to vocabulary file.',
                         default="train_authors_apt_cv0_vocab.dat")
-    parser.add_argument('--evaluate_every', type=int, default=0,
+    parser.add_argument('--evaluate_every', type=int,
                         help="If given a test file, number of EM iterations between evaluations of test set. Default of 0 = evaluate after each epoch.")
+    parser.add_argument('--max_training_minutes', type=float,
+                        help="If given this will stop training once the specified number of minutes have elapsed.")
     parser.add_argument('--normalization', type=str, default="sum",
                         help='Method for normalizing alpha values. Can be sum, none, or softmax.')
     parser.add_argument('--em_max_iter', type=int, default=10)
     parser.add_argument('--local_param_iter', type=int, default=30, help="max iterations to run on local parameters.")
-    parser.add_argument('--em_convergence', type=float, default=1e-4,
+    parser.add_argument('--em_convergence', type=float, default=1e-3,
                         help="Convergence threshold for e-step.")
     parser.add_argument('--process_noise', type=float, default=0.2)
     parser.add_argument('--measurement_noise', type=float, default=0.8)
@@ -62,7 +64,7 @@ def main():
                        args.batch_size, args.queue_size,
                        args.learning_offset, int(100 * args.learning_decay),
                        int(100 * args.process_noise), int(100 * args.measurement_noise),
-                       int(100 * args.penalty), args.normalization, args.num_workers)
+                       int(100 * args.regularization), args.normalization, args.num_workers)
         logging.basicConfig(filename=filename, format=log_format, level=logging.INFO)
     else:
         logging.basicConfig(format=log_format, level=logging.INFO)
@@ -84,14 +86,15 @@ def main():
     # train (predict) model
     if args.test_file is None:
         logger.info("Fitting model to {}.".format(data_dir + args.train_file))
-        train_results = dap.fit(corpus=train_cb)
+        train_results = dap.fit(corpus=train_cb, max_training_minutes=args.max_training_minutes)
     else:
         logger.info("Fitting model to {} and evaluating on {} every {} EM iterations.".format(
             data_dir + args.train_file, data_dir + args.test_file, args.evaluate_every))
         test_cb = Corpus(input_file=data_dir + args.test_file, vocab_file=data_dir + args.vocab_file,
                          author2id=train_cb.author2id)
         train_results, test_results = dap.fit_predict(train_corpus=train_cb, test_corpus=test_cb,
-                                                      evaluate_every=args.evaluate_every)
+                                                      evaluate_every=args.evaluate_every,
+                                                      max_training_minutes=args.max_training_minutes)
 
     logger.info(dap)
 

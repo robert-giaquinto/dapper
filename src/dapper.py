@@ -111,7 +111,7 @@ class DAPPER(object):
         self.vocab = np.array(corpus.vocab)
         self.id2author = {y: x for x, y in corpus.author2id.items()}
 
-    def init_latent_vars(self):
+    def parameter_init(self):
         # initialize matrices
         self.omega = np.ones(self.num_personas) * (1.0 / self.num_personas)
         self._delta = np.random.gamma(500., 0.1, (self.num_authors, self.num_personas))
@@ -119,6 +119,7 @@ class DAPPER(object):
 
         self.eta = 1.0 / self.num_topics
         self._lambda = np.random.gamma(500., 0.1, (self.num_topics, self.vocab_size))
+        self.E_log_beta = dirichlet_expectation(self._lambda)
         self.log_beta = np.zeros((self.num_topics, self.vocab_size))
 
         self.mu0 = np.ones(self.num_topics) * (1.0 / self.num_topics)
@@ -128,7 +129,6 @@ class DAPPER(object):
 
         for t in range(self.num_times):
             alpha_init = np.random.uniform(0.01, 5.0, (self.num_topics, self.num_personas))
-            # alpha_init = np.random.gamma(100., 0.01, (self.num_topics, self.num_personas))
             self.alpha[t, :, :] = alpha_init
 
             if t == 0:
@@ -211,6 +211,7 @@ class DAPPER(object):
             new_lambda = self.eta + self.total_documents * self.ss.beta / batch_size
             self._lambda = (1 - rhot) * self._lambda + rhot * new_lambda
 
+        self.E_log_beta = dirichlet_expectation(self._lambda)
         # normalize
         beta = np.where(self.ss.beta <= 0, 1e-30, self._lambda)
         beta /= np.sum(beta, axis=1, keepdims=True)
@@ -291,7 +292,8 @@ class DAPPER(object):
                 try:
                     alpha_hat[t, :, :] = np.linalg.solve(A, b.T).T
                 except np.linalg.linalg.LinAlgError:
-                    print("alpha hat calc failure")
+                    logger.warning("Singular matrix in solving for alpha hat. A:\n" + matrix2str(A, 2) + "\n")
+                    logger.warning("Singular matrix in solving for alpha hat. b^T:\n" + matrix2str(b.T, 2) + "\n")
                     alpha_hat[t, :, :] = 1.0 * b / denom[np.newaxis, :]
             else:
                 alpha_hat[t, :, :] = 1.0 * b / denom[np.newaxis, :]
@@ -366,11 +368,10 @@ class DAPPER(object):
 
     def compute_author_lhood(self):
         # compute the kappa terms lhood
-        E_log_kappa = psi(self._delta) - psi(self._delta.sum(axis=1, keepdims=True))
         rval = self.num_authors * (gammaln(self.omega.sum()) - gammaln(self.omega).sum())
 
         # note: cancellation of omega between model and entropy term
-        rval += np.sum((self._delta - 1.0) * E_log_kappa)
+        rval += np.sum((self._delta - 1.0) * self.E_log_kappa)
 
         # entropy term
         rval += np.sum(gammaln(self._delta) - gammaln(self._delta.sum(axis=1, keepdims=True)))
@@ -442,14 +443,13 @@ class DAPPER(object):
         # Note K/2 log 2 pi cancels with term 2
         lhood += 0.5 * np.sum(np.log(doc_vsq))
 
-        # term 9: phi log phi
+        # term 7: phi log phi
         lhood -= np.sum(np.exp(log_phi) * log_phi * doc.counts)
         return lhood
 
     def compute_word_lhood(self, doc, log_phi):
         # lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.log_beta[:, doc.words])
-        E_log_beta = dirichlet_expectation(self._lambda)
-        lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * E_log_beta[:, doc.words])
+        lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.E_log_beta[:, doc.words])
         return lhood
 
     def em_step_s(self, docs, total_docs):
@@ -621,22 +621,26 @@ class DAPPER(object):
         Training and testing
     ================================================================================================================="""
 
-    def fit(self, corpus):
+    def fit(self, corpus, random_beta=False, max_training_minutes=None):
         """
         Performs EM-update until reaching target average change in the log-likelihood
         """
         # init from corpus
         self.init_from_corpus(corpus)
-        self.init_latent_vars()
-        self.init_beta_from_corpus(corpus=corpus)
-
-        prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
-        train_results = []
+        self.parameter_init()
+        if random_beta:
+            self.init_beta_random()
+        else:
+            self.init_beta_from_corpus(corpus=corpus)
 
         if self.batch_size <= 0:
             batch_size = corpus.total_documents
         else:
             batch_size = self.batch_size
+
+        prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
+        train_results = []
+        elapsed_time = 0.0
 
         batches = sample_batches(corpus.total_documents, batch_size)
         total_time = time.process_time()
@@ -658,18 +662,23 @@ class DAPPER(object):
                                            convergence, batch_time))
 
                 prev_train_model_lhood = train_model_lhood
+                elapsed_time += batch_time
+                if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                    logger.info("Maxed training time has elapsed, stopping training.")
+                    break
 
-            # report stats after each epoch
-            for p in range(self.num_personas):
-                logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
+            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                break
+
+            # report stats after each full epoch
+            self.print_topics_over_time(5)
             self.print_author_personas(max_show=25)
             self.print_topics(topn=8)
             self.total_epochs += 1
 
         # print last stats
         total_time = time.process_time() - total_time
-        for p in range(self.num_personas):
-            logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
+        self.print_topics_over_time(5)
         self.print_author_personas(max_show=25)
         self.print_topics(topn=8)
         self.print_convergence(train_results, show_batches=True)
@@ -709,6 +718,15 @@ class DAPPER(object):
         # save log of beta for VI computations
         self.log_beta = np.log(self._lambda / np.sum(self._lambda, axis=1, keepdims=True))
 
+    def init_beta_random(self):
+        """
+        random initializations before training
+        :return:
+        """
+        self.log_beta = np.random.uniform(0.01, 0.99, (self.num_topics, self.vocab_size))
+        row_sums = self.log_beta.sum(axis=1, keepdims=True)
+        self.log_beta = np.log(self.log_beta / row_sums)
+
     def predict(self, test_corpus):
         """
         Performs E-step on test corpus using stored topics obtained by training
@@ -724,29 +742,35 @@ class DAPPER(object):
             test_words_lhood, test_words_pwll))
         return test_words_lhood, test_words_pwll
 
-    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None):
+    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None, max_training_minutes=None, random_beta=False):
         """
         Computes the heldout-log likelihood on the test corpus after "evaluate_every" iterations
         (mini-batches) of training.
         """
         # initializarions from the training corpus
         self.init_from_corpus(train_corpus)
-        self.init_latent_vars()
-        self.init_beta_from_corpus(corpus=train_corpus)
+        self.parameter_init()
+        if random_beta:
+            self.init_beta_random()
+        else:
+            self.init_beta_from_corpus(corpus=train_corpus)
+
         # verify that the training and test corpora have same metadata
         self._check_corpora(train_corpus=train_corpus, test_corpus=test_corpus)
-
-        prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
-        train_results = []
-        test_results = []
 
         if self.batch_size <= 0:
             batch_size = train_corpus.total_documents
         else:
             batch_size = self.batch_size
+
+        prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
+        train_results = []
+        test_results = []
+
         batches = sample_batches(train_corpus.total_documents, batch_size)
         num_batches = len(batches)
 
+        elapsed_time = 0.0
         total_time = time.process_time()
         while self.total_epochs < self.em_max_iter:
             epoch_time = time.process_time()
@@ -763,11 +787,6 @@ class DAPPER(object):
                 # report current stats
                 log_str = "epoch: {}, batch: {}, model ll: {:.1f}, model pwll: {:.2f}, words pwll: {:.2f}, convergence: {:.3f}, time: {:.3f}"
                 logger.info(log_str.format(self.total_epochs, batch_id, train_model_lhood, train_model_pwll, train_words_pwll, convergence, batch_time))
-                if batch_id % 20 == 0:
-                    # for p in range(self.num_personas):
-                    #     logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
-                    # self.print_author_personas()
-                    self.print_topics(topn=8)
 
                 # test set evaluation:
                 if evaluate_every is not None and (batch_id + 1) % evaluate_every == 0 and (batch_id + 1) != num_batches:
@@ -775,8 +794,18 @@ class DAPPER(object):
                     test_results.append([self.total_epochs, batch_id, 0.0, 0.0, test_words_pwll, convergence, batch_time])
 
                 prev_train_model_lhood = train_model_lhood
+                elapsed_time += batch_time
+                if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                    logger.info("Maxed training time has elapsed, stopping training.")
+                    break
 
-            # always evaluate the log-likelihood at the end of the epoch
+            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                break
+
+            # always evaluate the log-likelihood at the end of each full epoch
+            self.print_topics_over_time(5)
+            self.print_author_personas()
+            self.print_topics(topn=8)
             self.total_epochs += 1
             epoch_time = time.process_time() - epoch_time
             test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
@@ -792,8 +821,7 @@ class DAPPER(object):
 
         # print last stats
         total_time = time.process_time() - total_time
-        for p in range(self.num_personas):
-            logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
+        self.print_topics_over_time(5)
         self.print_author_personas()
         self.print_topics(topn=8)
         log_str = """Finished after {} EM iterations ({} epochs)
@@ -809,6 +837,18 @@ class DAPPER(object):
         self.print_convergence(train_results, show_batches=False)
         return train_results, test_results
 
+    def print_topics_over_time(self, top_n_topics=None):
+        for p in range(self.num_personas):
+            if top_n_topics is not None:
+                topic_totals = np.sum(self.alpha[:, :, p], axis=0)
+                top_topic_ids = np.argsort(topic_totals)[-top_n_topics:]
+                top_topic_ids.sort()
+                alpha = self.alpha[:, top_topic_ids, p]
+                logger.info('alpha[p={}] top topic ids: ' + '\t'.join([str(i) for i in top_topic_ids]))
+                logger.info('alpha[p={}]\n'.format(p) + matrix2str(alpha, 3))
+            else:
+                logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
+
     def print_convergence(self, results, show_batches=False):
         logger.info("EM Iteration\tMini-batch\tModel LL\tModel PWLL\tWords PWLL\tConvergence\tSeconds per Batch")
         for stats in results:
@@ -819,9 +859,6 @@ class DAPPER(object):
 
     def print_author_personas(self, max_show=10):
         max_key_len = max([len(k) for k in self.id2author.values()])
-
-        # kappa = np.exp(self.E_log_kappa)
-        # kappa /= np.sum(kappa, axis=1, keepdims=True)
         kappa = self._delta / np.sum(self._delta, axis=1, keepdims=True)
 
         logger.info("Kappa:")
@@ -887,10 +924,7 @@ class DAPPER(object):
                 f.write("topic #{} ({:.2f}): {}\n".format(k, self.mu0[k], topic_))
 
     def save_author_personas(self, filename):
-        # kappa = np.exp(self.E_log_kappa)
-        # kappa /= np.sum(kappa, axis=1, keepdims=True)
         kappa = self._delta / np.sum(self._delta, axis=1, keepdims=True)
-
         with open(filename, "w") as f:
             f.write("author\t" + "\t".join(["persona" + str(i) for i in range(self.num_personas)]) + "\n")
             for author_id in range(self.num_authors):

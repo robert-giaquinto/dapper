@@ -17,18 +17,18 @@ def main():
     np.random.seed(2018)
 
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-    data_dir = os.path.join(path_to_current_file, "../../data/")
-    sotu = Corpus(input_file=data_dir + "sotu_dpp_dap.txt", vocab_file=data_dir + "sotu_dpp.ldac.vocab")
+    data_dir = os.path.join(path_to_current_file, "../../data/sotu/")
+    sotu = Corpus(input_file=data_dir + "sotu_dpp_dap.txt", vocab_file=data_dir + "sotu_dpp_vocab.txt")
 
-    num_topics = 20
-    num_personas = 10
+    num_topics = 50
+    num_personas = 15
 
-    em_iter = 5
+    em_iter = 25
     e_iter = 30
     em_convergence = 1e-4
     num_workers = 1
 
-    batch_size = 2048
+    batch_size = 512
     learning_offset = 5
     learning_decay = 0.6
     step_size = 0.7
@@ -49,7 +49,7 @@ def main():
                  learning_offset=learning_offset, learning_decay=learning_decay,
                  num_workers=num_workers)
 
-    train_results = dap.fit(corpus=sotu)
+    train_results = dap.fit(corpus=sotu, max_training_minutes=4)
     logger.info(dap)
 
     model_sig = "K{}_P{}_bs{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_epochs{}_cpu{}_{}.txt".format(
