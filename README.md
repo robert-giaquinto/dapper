@@ -1,4 +1,4 @@
-# Dynamic Author-Persona Performed Exceedingly Rapidly (DAPPER) Topic Model#
+# Dynamic Author-Persona Performed Exceedingly Rapidly (DAPPER) Topic Model #
 
 
 ## Introduction ##

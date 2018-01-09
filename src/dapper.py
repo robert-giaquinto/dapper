@@ -641,20 +641,26 @@ class DAPPER(object):
         prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
         train_results = []
         elapsed_time = 0.0
+        total_training_docs = 0
 
-        batches = sample_batches(corpus.total_documents, batch_size)
         total_time = time.process_time()
         while self.total_epochs < self.em_max_iter:
+            batches = sample_batches(corpus.total_documents, batch_size)
+            epoch_time = 0.0
+            finished_epoch = True
             for batch_id, doc_ids in enumerate(batches):
                 batch = [corpus.docs[d] for d in doc_ids]
                 train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch, total_docs=corpus.total_documents)
+
                 train_model_pwll = train_model_lhood / corpus.total_words
                 train_words_pwll = train_words_lhood / np.sum([np.sum(d.counts) for d in batch])
-
+                total_training_docs += len(batch)
+                epoch_time += batch_time
+                elapsed_time += batch_time
                 convergence = np.abs((train_model_lhood - prev_train_model_lhood) / prev_train_model_lhood)
                 train_results.append([self.total_epochs, batch_id,
                                       train_model_lhood, train_model_pwll, train_words_pwll,
-                                      convergence, batch_time])
+                                      convergence, batch_time, elapsed_time, total_training_docs])
                 # report current stats
                 log_str = "epoch: {}, batch: {}, model ll: {:.1f}, model pwll: {:.2f}, words pwll: {:.2f}, convergence: {:.3f}, time: {:.3f}"
                 logger.info(log_str.format(self.total_epochs, batch_id,
@@ -662,34 +668,44 @@ class DAPPER(object):
                                            convergence, batch_time))
 
                 prev_train_model_lhood = train_model_lhood
-                elapsed_time += batch_time
                 if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
-                    logger.info("Maxed training time has elapsed, stopping training.")
+                    finished_epoch = (batch_id + 1) == len(batches)  # finished if we're already through the last batch
                     break
 
-            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
-                break
+            if finished_epoch:
+                # report stats after each full epoch
+                self.total_epochs += 1
+                self.print_topics_over_time(5)
+                self.print_author_personas(max_show=25)
+                self.print_topics(topn=8)
+                docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
+                log_str = """{} Epochs Completed
+                    train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f}, convergence: {:.3f},
+                    total minutes training: {:.2f}, previous epoch minutes training: {:.2f}, epoch's docs/hr {:.1f}
+                    """
+                logger.info(log_str.format(self.total_epochs,
+                                           train_model_lhood, train_model_pwll, train_words_pwll, convergence,
+                                           elapsed_time / 60.0, epoch_time / 60.0, docs_per_hour))
 
-            # report stats after each full epoch
-            self.print_topics_over_time(5)
-            self.print_author_personas(max_show=25)
-            self.print_topics(topn=8)
-            self.total_epochs += 1
+            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                logger.info("Maxed training time has elapsed, stopping training.")
+                break
 
         # print last stats
         total_time = time.process_time() - total_time
         self.print_topics_over_time(5)
         self.print_author_personas(max_show=25)
         self.print_topics(topn=8)
-        self.print_convergence(train_results, show_batches=True)
-        log_str = """Finished after {} EM iterations ({} epochs)
-            train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
-            total time (sec): {:.1f}, avg docs/hr {:.1f}
-            """
-        docs_per_hour = (self.total_epochs * corpus.total_documents) / (total_time / 60.0 / 60.0)
-        logger.info(log_str.format(self.current_em_iter, self.total_epochs,
+        log_str = """Finished after {} EM iterations ({} full epochs, {} total documents)
+                    train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
+                    total minutes elapsed: {:.1f}, total minutes training: {:.3f}, avg docs/hr {:.1f}
+                    """
+        docs_per_hour = total_training_docs / (elapsed_time / 60.0 / 60.0)
+        logger.info(log_str.format(self.current_em_iter, self.total_epochs, total_training_docs,
                                    train_model_lhood, train_model_pwll, train_words_pwll,
-                                   total_time, docs_per_hour))
+                                   total_time / 60.0, elapsed_time / 60.0, docs_per_hour))
+
+        self.print_convergence(train_results, show_batches=False)
         return train_results
 
     def init_beta_from_corpus(self, corpus, num_docs_init=None):
@@ -766,75 +782,89 @@ class DAPPER(object):
         prev_train_model_lhood, train_model_lhood = np.finfo(np.float32).min, np.finfo(np.float32).min
         train_results = []
         test_results = []
-
-        batches = sample_batches(train_corpus.total_documents, batch_size)
-        num_batches = len(batches)
-
         elapsed_time = 0.0
+        total_training_docs = 0
+
         total_time = time.process_time()
         while self.total_epochs < self.em_max_iter:
-            epoch_time = time.process_time()
+            batches = sample_batches(train_corpus.total_documents, batch_size)
+            epoch_time = 0.0
+            finished_epoch = True
             for batch_id, doc_ids in enumerate(batches):
+                # do an EM iteration on this batch
                 batch = [train_corpus.docs[d] for d in doc_ids]
                 train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch, total_docs=train_corpus.total_documents)
+
+                # collect stats from EM iteration
                 train_model_pwll = train_model_lhood / train_corpus.total_words
                 train_words_pwll = train_words_lhood / np.sum([np.sum(d.counts) for d in batch])
+                elapsed_time += batch_time
+                epoch_time += batch_time
+                total_training_docs += len(batch)
                 convergence = np.abs((train_model_lhood - prev_train_model_lhood) / prev_train_model_lhood)
                 train_results.append([self.total_epochs, batch_id,
                                       train_model_lhood, train_model_pwll, train_words_pwll,
-                                      convergence, batch_time])
+                                      convergence, batch_time, elapsed_time, total_training_docs])
 
                 # report current stats
-                log_str = "epoch: {}, batch: {}, model ll: {:.1f}, model pwll: {:.2f}, words pwll: {:.2f}, convergence: {:.3f}, time: {:.3f}"
-                logger.info(log_str.format(self.total_epochs, batch_id, train_model_lhood, train_model_pwll, train_words_pwll, convergence, batch_time))
+                log_str = "epoch: {}, batch: {}, model ll: {:.1f}, model pwll: {:.2f}, words pwll: {:.2f}, convergence: {:.3f}, batch time: {:.3f}, total training minutes: {:.3f}"
+                logger.info(log_str.format(self.total_epochs, batch_id, train_model_lhood, train_model_pwll, train_words_pwll, convergence, batch_time, elapsed_time / 60.))
 
                 # test set evaluation:
-                if evaluate_every is not None and (batch_id + 1) % evaluate_every == 0 and (batch_id + 1) != num_batches:
+                if evaluate_every is not None and (batch_id + 1) % evaluate_every == 0 and (batch_id + 1) != len(batches):
                     test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
-                    test_results.append([self.total_epochs, batch_id, 0.0, 0.0, test_words_pwll, convergence, batch_time])
+                    test_results.append([self.total_epochs, batch_id,
+                                         0.0, 0.0, test_words_pwll, convergence,
+                                         0.0, elapsed_time, total_training_docs])
 
                 prev_train_model_lhood = train_model_lhood
-                elapsed_time += batch_time
                 if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
-                    logger.info("Maxed training time has elapsed, stopping training.")
+                    finished_epoch = (batch_id + 1) == len(batches) # finished if we're already through the last batch
                     break
 
-            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
-                break
+            if finished_epoch:
+                self.total_epochs += 1
+                # evaluate the log-likelihood at the end of each full epoch
+                test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
+                test_results.append([self.total_epochs, -1,
+                                     0.0, 0.0, test_words_pwll, convergence,
+                                     epoch_time, elapsed_time, total_training_docs])
+                self.print_topics_over_time(5)
+                self.print_author_personas()
+                self.print_topics(topn=8)
+                # report stats on this epoch
+                docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
+                log_str = """{} Epochs Completed
+                    train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
+                    test words lhood:  {:.1f}, words per-word log-lhood: {:.2f}, convergence: {:.3f},
+                    total minutes training: {:.2f}, previous epoch minutes training: {:.2f}, epoch's docs/hr {:.1f}
+                    """
+                logger.info(log_str.format(self.total_epochs,
+                                           train_model_lhood, train_model_pwll, train_words_pwll,
+                                           test_words_lhood, test_words_pwll, convergence,
+                                           elapsed_time / 60.0, epoch_time / 60.0, docs_per_hour))
 
-            # always evaluate the log-likelihood at the end of each full epoch
-            self.print_topics_over_time(5)
-            self.print_author_personas()
-            self.print_topics(topn=8)
-            self.total_epochs += 1
-            epoch_time = time.process_time() - epoch_time
-            test_words_lhood, test_words_pwll = self.predict(test_corpus=test_corpus)
-            log_str = """Epoch {}
-                train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
-                test words lhood:  {:.1f}, words per-word log-lhood: {:.2f},
-                convergence: {:.3f}, epoch time: {:.3f}, docs/hr {:.1f}
-                """
-            logger.info(log_str.format(self.total_epochs,
-                                       train_model_lhood, train_model_pwll, train_words_pwll,
-                                       test_words_lhood, test_words_pwll,
-                                       convergence, epoch_time, (60.0 ** 2) * train_corpus.total_documents / epoch_time))
+            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                logger.info("Maxed training time has elapsed, stopping training.")
+                break
 
         # print last stats
         total_time = time.process_time() - total_time
         self.print_topics_over_time(5)
         self.print_author_personas()
         self.print_topics(topn=8)
-        log_str = """Finished after {} EM iterations ({} epochs)
+        log_str = """Finished after {} EM iterations ({} full epochs, {} total documents)
             train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f},
             test words lhood:  {:.1f}, words per-word log-lhood: {:.2f},
-            total time (sec): {:.1f}, avg docs/hr {:.1f}
+            total minutes elapsed: {:.1f}, total minutes training: {:.3f}, avg docs/hr {:.1f}
             """
-        docs_per_hour = (self.total_epochs + 1) * (60.0 ** 2) * train_corpus.total_documents / total_time
-        logger.info(log_str.format(self.current_em_iter, self.total_epochs,
+        docs_per_hour = total_training_docs / (elapsed_time / 60.0 / 60.0)
+        logger.info(log_str.format(self.current_em_iter, self.total_epochs, total_training_docs,
                                    train_model_lhood, train_model_pwll, train_words_pwll,
                                    test_words_lhood, test_words_pwll,
-                                   total_time, docs_per_hour))
+                                   total_time / 60.0, elapsed_time / 60.0, docs_per_hour))
         self.print_convergence(train_results, show_batches=False)
+        self.print_convergence(test_results, show_batches=True)
         return train_results, test_results
 
     def print_topics_over_time(self, top_n_topics=None):
@@ -850,12 +880,16 @@ class DAPPER(object):
                 logger.info('alpha[p={}]\n'.format(p) + matrix2str(self.alpha[:, :, p], 3))
 
     def print_convergence(self, results, show_batches=False):
-        logger.info("EM Iteration\tMini-batch\tModel LL\tModel PWLL\tWords PWLL\tConvergence\tSeconds per Batch")
+        logger.info("EM Iteration\tMini-batch\tModel LL\tModel PWLL\tWords PWLL\tConvergence\tSeconds per Batch\tSeconds Training\tDocs Trained")
         for stats in results:
-            em_iter, batch_id, model_lhood, model_pwll, words_pwll, convergence, batch_time = stats
+            em_iter, batch_id, model_lhood, model_pwll, words_pwll, convergence, batch_time, training_time, docs_trained = stats
             if batch_id == 0 or show_batches:
-                logger.info("{}\t\t{}\t\t{:.1f}\t{:.2f}\t\t{:.2f}\t\t{:.4f}\t\t{:.2f}".format(
-                    em_iter, batch_id, model_lhood, model_pwll, words_pwll, convergence, batch_time))
+                if model_lhood == 0.0:
+                    log_str = "{}\t\t{}\t\t{:.1f}\t\t{:.2f}\t\t{:.2f}\t\t{:.4f}\t\t{:.2f}\t\t\t{:.2f}\t\t\t{}"
+                else:
+                    log_str = "{}\t\t{}\t\t{:.1f}\t{:.2f}\t\t{:.2f}\t\t{:.4f}\t\t{:.2f}\t\t\t{:.2f}\t\t\t{}"
+                logger.info(log_str.format(
+                    em_iter, batch_id, model_lhood, model_pwll, words_pwll, convergence, batch_time, training_time, docs_trained))
 
     def print_author_personas(self, max_show=10):
         max_key_len = max([len(k) for k in self.id2author.values()])
@@ -941,7 +975,7 @@ class DAPPER(object):
 
     def save_convergnces(self, filename, results):
         with open(filename, 'w') as f:
-            f.write("em_iter\tbatch_iter\tmodel_log_lhood\tmodel_pwll\twords_pwll\tconvergence\ttime\n")
+            f.write("em_iter\tbatch_iter\tmodel_log_lhood\tmodel_pwll\twords_pwll\tconvergence\tbatch_time\ttraining_time\tdocs_trained\n")
             for stats in results:
                 f.write('\t'.join([str(stat) for stat in stats]) + '\n')
 
