@@ -176,7 +176,7 @@ def main():
         print(a, m)
 
 
-    # normalize timesteps so each documents "time step" indicates position in speech [0, 100]
+    # normalize timesteps so each document's "time step" indicates position in speech [0, 100]
     norm_keys = []
     for author, author_doc_num in keys:
         norm_keys.append((author, int(round(100.0 * author_doc_num / paragraphs_per_speech[author]))))

@@ -22,7 +22,7 @@ class DAPPER(object):
 
     def __init__(self, num_topics, num_personas,
                  process_noise=0.2, measurement_noise=0.8, regularization=0.0, normalization="sum",
-                 em_max_iter=10, em_convergence=1e-03, step_size=0.7, queue_size=10,
+                 max_epochs=10, em_convergence=1e-03, step_size=0.7, queue_size=10,
                  local_param_iter=50, batch_size=-1, learning_offset=10, learning_decay=0.7,
                  num_workers=1):
         self.batch_size = batch_size
@@ -41,7 +41,7 @@ class DAPPER(object):
 
         self.current_em_iter = 0
         self.total_epochs = 0
-        self.em_max_iter = em_max_iter
+        self.max_epochs = max_epochs
         self.em_convergence = em_convergence
         self.local_param_iter = local_param_iter
         self.queue_size=queue_size
@@ -644,7 +644,7 @@ class DAPPER(object):
         total_training_docs = 0
 
         total_time = time.process_time()
-        while self.total_epochs < self.em_max_iter:
+        while self.total_epochs < self.max_epochs:
             batches = sample_batches(corpus.total_documents, batch_size)
             epoch_time = 0.0
             finished_epoch = True
@@ -786,7 +786,7 @@ class DAPPER(object):
         total_training_docs = 0
 
         total_time = time.process_time()
-        while self.total_epochs < self.em_max_iter:
+        while self.total_epochs < self.max_epochs:
             batches = sample_batches(train_corpus.total_documents, batch_size)
             epoch_time = 0.0
             finished_epoch = True
@@ -998,14 +998,14 @@ class DAPPER(object):
             learning decay: {:.2f}
             step size: {:.2f}
             normalization method: {}
-            max em iterations: {}
+            max epochs: {}
             em convergence: {:.2f}
             local parameter max iterations: {}
             """.format(self.regularization, self.num_topics, self.num_personas,
                        self.measurement_noise, self.process_noise,
                        self.queue_size,
                        self.batch_size, self.learning_offset, self.learning_decay, self.step_size,
-                       self.normalization, self.em_max_iter, self.em_convergence, self.local_param_iter)
+                       self.normalization, self.max_epochs, self.em_convergence, self.local_param_iter)
         return rval
 
 

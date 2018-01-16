@@ -15,10 +15,10 @@ def main():
     """
     parser = argparse.ArgumentParser(description='Run dap model.')
     parser.add_argument('--train_file', type=str, help='Path to training data file.',
-                        default="train_cv0.txt")
+                        default="train_full365.txt")
     parser.add_argument('--test_file', type=str, help='Path to testing data file. If None, no prediction is run')
     parser.add_argument('--vocab_file', type=str, help='Path to vocabulary file.',
-                        default="train_cv0_vocab.txt")
+                        default="full_vocab.txt")
     parser.add_argument('--evaluate_every', type=int,
                         help="If given a test file, number of EM iterations between evaluations of test set. Default of 0 = evaluate after each epoch.")
     parser.add_argument('--max_training_minutes', type=float,
@@ -56,7 +56,7 @@ def main():
     logger = logging.getLogger(__name__)
     log_format = '%(asctime)s : %(levelname)s : %(message)s'
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-    log_dir = os.path.join(path_to_current_file, "../../scripts/log/cb_cv0/")
+    log_dir = os.path.join(path_to_current_file, "../../scripts/log/full365/")
     if args.log:
         filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
                    '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
@@ -80,7 +80,7 @@ def main():
                  num_workers=args.num_workers)
 
     # load training corpus
-    data_dir = os.path.join(path_to_current_file, "../../data/cb_cv0/")
+    data_dir = os.path.join(path_to_current_file, "../../data/full365/")
     train_cb = Corpus(input_file=data_dir + args.train_file, vocab_file=data_dir + args.vocab_file)
 
     # train (predict) model
@@ -99,7 +99,7 @@ def main():
     logger.info(dap)
 
     # save model output
-    results_dir = os.path.join(path_to_current_file, "../../results/cb_cv0/")
+    results_dir = os.path.join(path_to_current_file, "../../results/full365/")
     model_sig = "K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_epochs{}_cpu{}_{}.txt".format(
         args.num_topics, args.num_personas,
         args.batch_size, args.queue_size,
