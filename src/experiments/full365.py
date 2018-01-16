@@ -15,17 +15,17 @@ def main():
     """
     parser = argparse.ArgumentParser(description='Run dap model.')
     parser.add_argument('--train_file', type=str, help='Path to training data file.',
-                        default="train_full365.txt")
+                        default="train_authors_apt_cv0.dat")
     parser.add_argument('--test_file', type=str, help='Path to testing data file. If None, no prediction is run')
     parser.add_argument('--vocab_file', type=str, help='Path to vocabulary file.',
-                        default="full_vocab.txt")
+                        default="train_authors_apt_cv0_vocab.dat")
     parser.add_argument('--evaluate_every', type=int,
                         help="If given a test file, number of EM iterations between evaluations of test set. Default of 0 = evaluate after each epoch.")
     parser.add_argument('--max_training_minutes', type=float,
                         help="If given this will stop training once the specified number of minutes have elapsed.")
     parser.add_argument('--normalization', type=str, default="sum",
                         help='Method for normalizing alpha values. Can be sum, none, or softmax.')
-    parser.add_argument('--max_epochs', type=int, default=10)
+    parser.add_argument('--em_max_iter', type=int, default=10)
     parser.add_argument('--local_param_iter', type=int, default=30, help="max iterations to run on local parameters.")
     parser.add_argument('--em_convergence', type=float, default=1e-3,
                         help="Convergence threshold for e-step.")
@@ -56,7 +56,7 @@ def main():
     logger = logging.getLogger(__name__)
     log_format = '%(asctime)s : %(levelname)s : %(message)s'
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-    log_dir = os.path.join(path_to_current_file, "../../scripts/log/full365/")
+    log_dir = os.path.join(path_to_current_file, "../../scripts/log/cb_cv0_smoothing_and_penalty/")
     if args.log:
         filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
                    '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
@@ -73,14 +73,14 @@ def main():
     dap = DAPPER(num_topics=args.num_topics, num_personas=args.num_personas,
                  process_noise=args.process_noise, measurement_noise=args.measurement_noise,
                  regularization=args.regularization, normalization=args.normalization,
-                 max_epochs=args.max_epochs, em_convergence=args.em_convergence,
+                 em_max_iter=args.em_max_iter, em_convergence=args.em_convergence,
                  step_size=args.step_size, local_param_iter=args.local_param_iter,
                  batch_size=args.batch_size, queue_size=args.queue_size,
                  learning_offset=args.learning_offset, learning_decay=args.learning_decay,
                  num_workers=args.num_workers)
 
     # load training corpus
-    data_dir = os.path.join(path_to_current_file, "../../data/full365/")
+    data_dir = os.path.join(path_to_current_file, "../../data/cb_cv0_smoothing_and_penalty/")
     train_cb = Corpus(input_file=data_dir + args.train_file, vocab_file=data_dir + args.vocab_file)
 
     # train (predict) model
@@ -99,7 +99,7 @@ def main():
     logger.info(dap)
 
     # save model output
-    results_dir = os.path.join(path_to_current_file, "../../results/full365/")
+    results_dir = os.path.join(path_to_current_file, "../../results/cb_cv0_smoothing_and_penalty/")
     model_sig = "K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_epochs{}_cpu{}_{}.txt".format(
         args.num_topics, args.num_personas,
         args.batch_size, args.queue_size,
