@@ -64,7 +64,7 @@ class Corpus(object):
             logger.info("Building training corpus.")
         else:
             logger.info("Building testing corpus. Will skip any new authors.")
-        
+
         with open(self.input_file, "r") as f:
             self.num_times = int(f.readline().replace('\n', ''))
             self.num_docs_per_time = [0] * self.num_times
