@@ -23,7 +23,7 @@ def main():
     num_topics = 50
     num_personas = 15
 
-    em_iter = 25
+    max_epochs = 25
     e_iter = 30
     em_convergence = 1e-4
     num_workers = 1
@@ -43,7 +43,7 @@ def main():
     dap = DAPPER(num_topics=num_topics, num_personas=num_personas,
                  process_noise=pn, measurement_noise=mn,
                  regularization=regularization, normalization=normalization,
-                 em_max_iter=em_iter, em_convergence=em_convergence,
+                 max_epochs=max_epochs, em_convergence=em_convergence,
                  step_size=step_size, local_param_iter=e_iter,
                  batch_size=batch_size, queue_size=queue_size,
                  learning_offset=learning_offset, learning_decay=learning_decay,
