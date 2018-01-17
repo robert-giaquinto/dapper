@@ -59,6 +59,12 @@ class Corpus(object):
         skipped_docs = 0
         skipped_times = 0
         doc_id = 0
+        for_training = len(self.author2id) == 0 # don't include new authors in a test set
+        if for_training:
+            logger.info("Building training corpus.")
+        else:
+            logger.info("Building testing corpus. Will skip any new authors.")
+        
         with open(self.input_file, "r") as f:
             self.num_times = int(f.readline().replace('\n', ''))
             self.num_docs_per_time = [0] * self.num_times
@@ -90,8 +96,13 @@ class Corpus(object):
 
                     # convert author to a unique author id
                     if doc.author not in self.author2id:
-                        self.author2id[doc.author] = self.num_authors
-                        self.num_authors += 1
+                        if for_training:
+                            self.author2id[doc.author] = self.num_authors
+                            self.num_authors += 1
+                        else:
+                            # skip this doc, don't want to add new authors to a test set
+                            skipped_docs += 1
+                            continue
 
                     # save author id by looking up author name
                     doc.author_id = self.author2id[doc.author]
