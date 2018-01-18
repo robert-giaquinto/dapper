@@ -493,14 +493,23 @@ class DAPPER(object):
     def e_step_parallel(self, docs, save_ss):
         batch_size = len(docs)
 
+        # setup stream that returns chunks of documents at each iteration
+        # determine size of partitions of documents
+        max_docs_per_worker = int(ceil(1.0 * batch_size / self.num_workers))
+        docs_per_worker = []
+        while sum(docs_per_worker) < batch_size:
+            if sum(docs_per_worker) + max_docs_per_worker < batch_size:
+                n = max_docs_per_worker
+            else:
+                n = batch_size - sum(docs_per_worker)
+            docs_per_worker.append(n)
+
         # set up pool of workers and arguments passed to each worker
         job_queue = Queue(maxsize=self.num_workers)
         result_queue = Queue()
-        pool = Pool(self.num_workers, _doc_e_step_worker, (job_queue, result_queue,))
 
         queue_size, reallen = [0], 0
         batch_lhood, words_lhood = [0.0], [0.0]
-
         def process_result_queue():
             """
             clear result queue, merge intermediate SS
@@ -514,41 +523,28 @@ class DAPPER(object):
                 self.ss.merge(partial_ss)
                 queue_size[0] -= 1
 
-        # setup stream that returns chunks of documents at each iteration
-        # determine size of partitions of documents
-        max_docs_per_worker = int(ceil(1.0 * batch_size / self.num_workers))
-        docs_per_worker = []
-        while sum(docs_per_worker) < batch_size:
-            if sum(docs_per_worker) + max_docs_per_worker < batch_size:
-                n = max_docs_per_worker
-            else:
-                n = batch_size - sum(docs_per_worker)
-            docs_per_worker.append(n)
+        with Pool(self.num_workers, _doc_e_step_worker, (job_queue, result_queue,)) as pool:
+            # loop through chunks of documents placing chunks on the queue
+            for chunk_id, chunk_size in enumerate(docs_per_worker):
+                doc_mini_batch = docs[reallen:(reallen + chunk_size)]
+                reallen += len(doc_mini_batch)  # track how many documents have been seen
+                chunk_put = False
+                while not chunk_put:
+                    try:
+                        args = (self, doc_mini_batch, save_ss)
+                        job_queue.put(args, block=False, timeout=0.1)
+                        chunk_put = True
+                        queue_size[0] += 1
+                    except job_queue.full():
+                        process_result_queue()
 
-        # loop through chunks of documents placing chunks on the queue
-        for chunk_id, chunk_size in enumerate(docs_per_worker):
-            doc_mini_batch = docs[reallen:(reallen + chunk_size)]
-            reallen += len(doc_mini_batch)  # track how many documents have been seen
-            chunk_put = False
-            while not chunk_put:
-                try:
-                    args = (self, doc_mini_batch, save_ss)
-                    job_queue.put(args, block=False, timeout=0.1)
-                    chunk_put = True
-                    queue_size[0] += 1
-                except job_queue.full():
-                    process_result_queue()
+                process_result_queue()
 
-            process_result_queue()
+            while queue_size[0] > 0:
+                process_result_queue()
 
-        while queue_size[0] > 0:
-            process_result_queue()
-
-        if reallen != batch_size:
-            raise RuntimeError("input corpus size changed during training (don't use generators as input)")
-
-        # close out pool
-        pool.terminate()
+            if reallen != batch_size:
+                raise RuntimeError("input corpus size changed during training (don't use generators as input)")
 
         return batch_lhood[0], words_lhood[0]
 
