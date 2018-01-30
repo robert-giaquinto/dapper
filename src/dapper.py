@@ -151,6 +151,7 @@ class DAPPER(object):
                                        num_times=self.num_times)
         self.ss.reset()
         self.ss_queue = deque(maxlen=self.queue_size)
+        self.beta_ss = None
 
     def cvi_gamma_update(self, doc_topic_param_1, doc_topic_param_2, doc_zeta_factor, doc_tau, sum_phi, doc_word_count, t):
         sigma_inv = self.sigma_inv[t, :, :]
@@ -205,10 +206,12 @@ class DAPPER(object):
             if len(self.ss_queue) < self.queue_size:
                 self.beta_ss = sum(self.ss_queue) / len(self.ss_queue)
             else:
+                # update gradient averages with new info
                 self.beta_ss += (self.ss_queue[-1] - self.ss_queue[0]) / self.queue_size
 
+            # perform gradient update
             lambda_gradient = ((self.eta - self._lambda) + self.beta_ss)
-            self._lambda = self._lambda + rhot * lambda_gradient
+            self._lambda = self._lambda + 0.001 * lambda_gradient
         else:
             new_lambda = self.eta + self.total_documents * self.ss.beta / batch_size
             self._lambda = (1 - rhot) * self._lambda + rhot * new_lambda
