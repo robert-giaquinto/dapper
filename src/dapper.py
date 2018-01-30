@@ -194,8 +194,10 @@ class DAPPER(object):
         """
         Stochastic M-step: update the variational parameter for topics using a mini-batch of documents
         """
-        rhot = np.power(self.learning_offset + self.current_em_iter / 2, -self.learning_decay)
-        # rhot = 0.1
+        if batch_size == self.total_documents:
+            rhot = 1.0
+        else:
+            rhot = np.power(self.learning_offset + self.current_em_iter / 2, -self.learning_decay)
 
         # topic maximization
         if self.queue_size > 1:
@@ -219,7 +221,6 @@ class DAPPER(object):
 
         # beta = np.exp(dirichlet_expectation(self._lambda))
         # beta /= np.sum(beta, axis=1, keepdims=True)
-        # print(np.mean(np.abs(new_lambda - beta)))
 
         # update the kappa terms
         new_delta = self.omega + (self.total_documents * self.ss.kappa / batch_size)
@@ -553,7 +554,7 @@ class DAPPER(object):
         E-step: update the variational parameters for topic proportions and topic assignments.
         """
         # iterate over all documents
-        batch_lhood = 0
+        batch_lhood, batch_lhood_d = 0, 0
         words_lhood = 0
         for doc in docs:
             # initialize gamma for this document
@@ -592,13 +593,15 @@ class DAPPER(object):
                 if mean_change < self.em_convergence:
                     break
 
+            # compute word likelihoods
             words_lhood_d = self.compute_word_lhood(doc, log_phi)
             words_lhood += words_lhood_d
+
             # collect sufficient statistics
             if save_ss:
                 self.ss.update(doc, doc_m, doc_tau, log_phi)
 
-                # compute variational likelihoods
+                # if updating the model (save_ss) then also compute variational likelihoods
                 batch_lhood_d = self.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
                 batch_lhood += batch_lhood_d
 

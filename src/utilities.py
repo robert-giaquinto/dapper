@@ -10,6 +10,8 @@ def sample_batches(n, batch_size):
     :param batch_size: how many documents should appear in each batch
     :return: list of lists of batches.
     """
+    if n == batch_size:
+        return [[i for i in range(n)]]
     indices = np.arange(n)
     np.random.shuffle(indices)
     num_splits = int(ceil(1.0 * n / batch_size))
