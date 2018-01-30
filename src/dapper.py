@@ -674,9 +674,9 @@ class DAPPER(object):
             if finished_epoch:
                 # report stats after each full epoch
                 self.total_epochs += 1
-                self.print_topics_over_time(5)
-                self.print_author_personas(max_show=25)
-                self.print_topics(topn=8)
+                #self.print_topics_over_time(5)
+                #self.print_author_personas(max_show=25)
+                #self.print_topics(topn=8)
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
                     train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f}, convergence: {:.3f},
@@ -828,9 +828,9 @@ class DAPPER(object):
                 test_results.append([self.total_epochs, -1,
                                      0.0, 0.0, test_words_pwll, convergence,
                                      epoch_time, elapsed_time, total_training_docs])
-                self.print_topics_over_time(5)
-                self.print_author_personas()
-                self.print_topics(topn=8)
+                #self.print_topics_over_time(5)
+                #self.print_author_personas()
+                #self.print_topics(topn=8)
                 # report stats on this epoch
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
