@@ -156,7 +156,6 @@ def main():
                 fields = line.split("\t")
                 author = '_'.join(fields[2:4]).replace(' ', '_').replace('.', '_').replace(",", "_")
                 author = re.sub("_+", "_", author)
-                prev_author = author
                 author_doc_num = 0
 
                 keys.append((author, author_doc_num))
@@ -168,12 +167,13 @@ def main():
                 author_doc_num += 1
                 doc = clean_text(line)
                 docs.append(doc)
-                keys.append((prev_author, author_doc_num))
+                keys.append((author, author_doc_num))
                 paragraphs_per_speech[author] = author_doc_num
 
     print("Number of paragraphs in each speech:")
     for a, m in paragraphs_per_speech.items():
         print(a, m)
+
 
 
     # normalize timesteps so each document's "time step" indicates position in speech [0, 100]
@@ -191,15 +191,15 @@ def main():
     docs = docs[sort_order]
     keys = keys[sort_order]
 
+
     # how many docs per time step
     timesteps = {}
-    for author, timestep in keys:
+    for _, timestep in keys:
         ts = int(timestep)
         if ts not in timesteps:
             timesteps[ts] = 1
         else:
             timesteps[ts] += 1
-
 
     # write out the keys and cleaned text to seperate file, possibly useful later
     with open(data_dir + "sotu_dpp_keys.txt", "w") as out_keys, open(data_dir + "sotu_dpp_clean.txt", "w") as out_text:
@@ -207,17 +207,19 @@ def main():
             out_keys.write("\t".join([str(author), str(author_doc_num)]) + "\n")
             out_text.write(' '.join(text_arr) + "\n")
 
-    # convert docs to a proper LDA-C formatted corpus
-    vocab = corpora.Dictionary(docs)
-    vocab.filter_extremes(no_below=3, no_above=0.99, keep_n=15000)
-    vocab.compactify()
-    corpus = (vocab.doc2bow(tokens) for tokens in docs)
-    corpora.MmCorpus.serialize(data_dir + 'sotu.mm', corpus)
-    corpus = corpora.MmCorpus(data_dir + 'sotu.mm')
-    corpora.BleiCorpus.save_corpus(data_dir + 'sotu_dpp.ldac', corpus, id2word=vocab)
-    os.remove(data_dir + "sotu.mm")
-    os.remove(data_dir + "sotu.mm.index")
-    os.rename(data_dir + "sotu_dpp.ldac.vocab", data_dir + "sotu_dpp_vocab.txt")
+    build_corpus = True
+    if build_corpus:
+        # convert docs to a proper LDA-C formatted corpus
+        vocab = corpora.Dictionary(docs)
+        vocab.filter_extremes(no_below=3, no_above=0.95, keep_n=10000)
+        vocab.compactify()
+        corpus = (vocab.doc2bow(tokens) for tokens in docs)
+        corpora.MmCorpus.serialize(data_dir + 'sotu.mm', corpus)
+        corpus = corpora.MmCorpus(data_dir + 'sotu.mm')
+        corpora.BleiCorpus.save_corpus(data_dir + 'sotu_dpp.ldac', corpus, id2word=vocab)
+        os.remove(data_dir + "sotu.mm")
+        os.remove(data_dir + "sotu.mm.index")
+        os.rename(data_dir + "sotu_dpp.ldac.vocab", data_dir + "sotu_dpp_vocab.txt")
 
     # write out data in format for DAP model:
     # total_timesteps
@@ -232,23 +234,54 @@ def main():
     # num_docs[t=T]
     # author num_terms term_0:count ... term_n:count
     # author num_terms term_0:count ... term_n:count
-    num_timesteps = len(timesteps)
-    lda_file = open(data_dir + "sotu_dpp.ldac", "r")
-    keys_ptr = 0
-    with open(data_dir + "sotu_dpp_dap.txt", "w") as dap_file:
-        dap_file.write(str(num_timesteps) + "\n")
-        for ts in sorted(timesteps.keys(), key=lambda x: int(x)):
-            dap_file.write(str(ts) + "\n")
-            num_docs = timesteps[ts]
-            dap_file.write(str(num_docs) + "\n")
-            for d in range(num_docs):
-                ldac = lda_file.readline()
-                author = keys[keys_ptr, 0]
-                dap_file.write(author + " " + ldac)
-                keys_ptr += 1
+    dap = True
+    if dap:
+        num_timesteps = len(timesteps)
+        lda_file = open(data_dir + "sotu_dpp.ldac", "r")
+        keys_ptr = 0
+        with open(data_dir + "sotu_dpp_dap.txt", "w") as dap_file:
+            dap_file.write(str(num_timesteps) + "\n")
+            for ts in sorted(timesteps.keys(), key=lambda x: int(x)):
+                dap_file.write(str(ts) + "\n")
+                num_docs = timesteps[ts]
+                dap_file.write(str(num_docs) + "\n")
+                for d in range(num_docs):
+                    ldac = lda_file.readline()
+                    author = keys[keys_ptr, 0]
+                    dap_file.write(author + " " + ldac)
+                    keys_ptr += 1
 
-    lda_file.close()
-    os.remove(data_dir + 'sotu_dpp.ldac')
+        lda_file.close()
+        os.remove(data_dir + 'sotu_dpp.ldac')
+
+    split = True
+    if split:
+        # split DAP file into training and test sets
+        print("Split into training and test sets")
+        pct_train = 0.1
+        with open(data_dir + "sotu_dpp_dap.txt", "r") as dap_file, \
+            open(data_dir + "sotu_train.txt", "w") as train, \
+            open(data_dir + "sotu_test.txt", "w") as test:
+            num_timesteps = int(dap_file.readline().replace("\n", ""))
+            train.write(str(num_timesteps) + "\n")
+            test.write(str(num_timesteps) + "\n")
+            for t in range(num_timesteps):
+                ts = int(dap_file.readline().replace("\n", ""))
+                num_docs_t = int(dap_file.readline().replace("\n", ""))
+                print("t:", t, "total:", num_docs_t)
+                test_ids = np.random.choice(num_docs_t, size=int(np.ceil(num_docs_t * pct_train)), replace=False)
+                train_ids = np.delete(np.arange(num_docs_t), test_ids)
+                print("\ttrain:", len(train_ids), "test:", len(test_ids))
+                train.write(str(ts) + "\n")
+                test.write(str(ts) + "\n")
+                train.write(str(len(train_ids)) + "\n")
+                test.write(str(len(test_ids)) + "\n")
+                for i in range(num_docs_t):
+                    doc = dap_file.readline()
+                    if i in test_ids:
+                        test.write(doc)
+                    else:
+                        train.write(doc)
 
 
 if __name__ == "__main__":

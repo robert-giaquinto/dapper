@@ -21,9 +21,10 @@ class DAPPER(object):
     """
 
     def __init__(self, num_topics, num_personas,
-                 process_noise=0.2, measurement_noise=0.8, regularization=0.0, normalization="sum",
-                 max_epochs=10, em_convergence=1e-03, step_size=0.7, queue_size=10,
-                 local_param_iter=50, batch_size=-1, learning_offset=10, learning_decay=0.7,
+                 process_noise=0.1, measurement_noise=0.8, regularization=0.0, normalization="sum",
+                 max_epochs=25, max_training_minutes=0,
+                 local_convergence=1e-03, step_size=0.7, queue_size=10,
+                 max_local_iters=50, batch_size=-1, learning_offset=10, learning_decay=0.7,
                  num_workers=1):
         self.batch_size = batch_size
         self.learning_offset = learning_offset
@@ -41,9 +42,10 @@ class DAPPER(object):
 
         self.current_em_iter = 0
         self.total_epochs = 0
-        self.max_epochs = max_epochs
-        self.em_convergence = em_convergence
-        self.local_param_iter = local_param_iter
+        self.max_epochs = max_epochs if max_epochs is not None else 0
+        self.max_training_minutes = max_training_minutes if max_training_minutes is not None else 0
+        self.local_convergence = local_convergence
+        self.max_local_iters = max_local_iters
         self.queue_size=queue_size
         self._check_params()
 
@@ -72,6 +74,8 @@ class DAPPER(object):
                 "process noise must be positive (recommended to be between 2 to 10 times process_noise).")
         if self.regularization < 0.0 or self.regularization > 0.5:
             raise ValueError("regularization parameter is recommended to be between [0, 0.5]")
+        if self.max_training_minutes <= 0 and self.max_epochs <= 0:
+            raise ValueError("Both max training minutes and max epochs cannot be None.")
 
     def _check_corpora(self, train_corpus, test_corpus):
         """
@@ -573,7 +577,7 @@ class DAPPER(object):
             doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
             iters = 0
-            while iters < self.local_param_iter:
+            while iters < self.max_local_iters:
                 prev_doc_m = doc_m
                 iters += 1
                 # update phi in closed form
@@ -593,7 +597,7 @@ class DAPPER(object):
                 doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
                 mean_change = np.mean(abs(doc_m - prev_doc_m))
-                if mean_change < self.em_convergence:
+                if mean_change < self.local_convergence:
                     break
 
             # compute word likelihoods
@@ -623,7 +627,7 @@ class DAPPER(object):
         Training and testing
     ================================================================================================================="""
 
-    def fit(self, corpus, random_beta=False, max_training_minutes=None):
+    def fit(self, corpus, random_beta=False):
         """
         Performs EM-update until reaching target average change in the log-likelihood
         """
@@ -646,7 +650,7 @@ class DAPPER(object):
         total_training_docs = 0
 
         total_time = time.process_time()
-        while self.total_epochs < self.max_epochs:
+        while self.max_epochs <= 0 or self.total_epochs < self.max_epochs:
             batches = sample_batches(corpus.total_documents, batch_size)
             epoch_time = 0.0
             finished_epoch = True
@@ -670,7 +674,7 @@ class DAPPER(object):
                                            convergence, batch_time))
 
                 prev_train_model_lhood = train_model_lhood
-                if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                if (elapsed_time / 60.0) > self.max_training_minutes > 0:
                     finished_epoch = (batch_id + 1) == len(batches)  # finished if we're already through the last batch
                     break
 
@@ -689,7 +693,7 @@ class DAPPER(object):
                                            train_model_lhood, train_model_pwll, train_words_pwll, convergence,
                                            elapsed_time / 60.0, epoch_time / 60.0, docs_per_hour))
 
-            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+            if (elapsed_time / 60.0) > self.max_training_minutes > 0:
                 logger.info("Maxed training time has elapsed, stopping training.")
                 break
 
@@ -760,7 +764,7 @@ class DAPPER(object):
             test_words_lhood, test_words_pwll))
         return test_words_lhood, test_words_pwll
 
-    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None, max_training_minutes=None, random_beta=False):
+    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None, random_beta=False):
         """
         Computes the heldout-log likelihood on the test corpus after "evaluate_every" iterations
         (mini-batches) of training.
@@ -788,7 +792,7 @@ class DAPPER(object):
         total_training_docs = 0
 
         total_time = time.process_time()
-        while self.total_epochs < self.max_epochs:
+        while self.max_epochs <= 0 or self.total_epochs < self.max_epochs:
             batches = sample_batches(train_corpus.total_documents, batch_size)
             epoch_time = 0.0
             finished_epoch = True
@@ -820,7 +824,7 @@ class DAPPER(object):
                                          0.0, elapsed_time, total_training_docs])
 
                 prev_train_model_lhood = train_model_lhood
-                if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+                if (elapsed_time / 60.0) > self.max_training_minutes > 0:
                     finished_epoch = (batch_id + 1) == len(batches) # finished if we're already through the last batch
                     break
 
@@ -846,7 +850,7 @@ class DAPPER(object):
                                            test_words_lhood, test_words_pwll, convergence,
                                            elapsed_time / 60.0, epoch_time / 60.0, docs_per_hour))
 
-            if max_training_minutes is not None and (elapsed_time / 60.0) > max_training_minutes:
+            if (elapsed_time / 60.0) > self.max_training_minutes > 0:
                 logger.info("Maxed training time has elapsed, stopping training.")
                 break
 
@@ -1001,13 +1005,13 @@ class DAPPER(object):
             step size: {:.2f}
             normalization method: {}
             max epochs: {}
-            em convergence: {:.2f}
+            convergence criteria for local parameters: {:.2f}
             local parameter max iterations: {}
             """.format(self.regularization, self.num_topics, self.num_personas,
                        self.measurement_noise, self.process_noise,
                        self.queue_size,
                        self.batch_size, self.learning_offset, self.learning_decay, self.step_size,
-                       self.normalization, self.max_epochs, self.em_convergence, self.local_param_iter)
+                       self.normalization, self.max_epochs, self.local_convergence, self.max_local_iters)
         return rval
 
 
@@ -1040,7 +1044,7 @@ def _doc_e_step_worker(input_queue, result_queue):
             doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
             iters = 0
-            while iters < dap.local_param_iter:
+            while iters < dap.max_local_iters:
                 prev_doc_m = doc_m
                 iters += 1
                 # update phi in closed form
@@ -1061,7 +1065,7 @@ def _doc_e_step_worker(input_queue, result_queue):
                 doc_zeta_factor = doc_m + 0.5 * doc_vsq
 
                 mean_change = np.mean(abs(doc_m - prev_doc_m))
-                if mean_change < dap.em_convergence:
+                if mean_change < dap.local_convergence:
                     break
 
             if save_ss:
