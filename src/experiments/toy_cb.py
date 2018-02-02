@@ -24,13 +24,13 @@ def main():
     num_topics = 10
     num_personas = 4
 
-    max_epochs = 5
+    max_epochs = 2
     e_iter = 30
     em_convergence = 1e-4
 
-    num_workers = 1
+    num_workers = 2
 
-    batch_size = 256
+    batch_size = 2048
     queue_size = 1
     learning_offset = 5
     learning_decay = 0.6
@@ -38,7 +38,7 @@ def main():
 
     pn = 0.2
     mn = 0.8
-    regularization = 0.25
+    regularization = 0.2
     normalization = "sum"
 
     print("=====================STOCHASTIC CVI=====================")
