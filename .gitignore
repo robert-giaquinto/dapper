@@ -7,3 +7,7 @@ DAPPER.egg-info/
 *.log
 *.e*
 .Rproj.user
+data/cb*/
+data/full*/
+src/experiments/cb*.py
+src/experiments/full*.py
