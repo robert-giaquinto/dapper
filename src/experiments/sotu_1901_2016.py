@@ -2,7 +2,7 @@ import numpy as np
 from src.corpus import Corpus
 from src.dapper import DAPPER
 import time
-#import logging
+import logging
 import os
 import argparse
 
@@ -18,7 +18,7 @@ def main():
                         help="If given this will stop training once the specified number of minutes have elapsed.")
     parser.add_argument('--normalization', type=str, default="sum",
                         help='Method for normalizing alpha values. Can be sum, none, or softmax.')
-    parser.add_argument('--max_epochs', type=int, default=10)
+    parser.add_argument('--max_epochs', type=int)
     parser.add_argument('--max_local_iters', type=int, default=30, help="max iterations to run on local parameters.")
     parser.add_argument('--local_convergence', type=float, default=1e-3,
                         help="Convergence threshold for e-step.")
@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--num_personas', type=int, default=20)
     parser.add_argument('--regularization', type=float, default=0.2,
                         help="How much to penalize similar personas. Recommend [0, 0.5].")
-    parser.add_argument('--batch_size', type=int,
+    parser.add_argument('--batch_size', type=int, default=0,
                         help="Batch size. Set to -1 for full gradient updates, else stochastic minibatches used.")
     parser.add_argument('--learning_offset', type=int, default=10,
                         help="Learning offset used to control rate of convergence of gradient updates.")
@@ -45,22 +45,26 @@ def main():
     parser.set_defaults(corpus_in_memory=False)
     args = parser.parse_args()
 
-    #logger = logging.getLogger(__name__)
-    #log_format = '%(asctime)s : %(levelname)s : %(message)s'
+
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-    #log_dir = os.path.join(path_to_current_file, "../../scripts/log/cb_cv0_96hrs/")
-    #save_log = True
-    #if args.log:
-    #    filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
-    #               '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
-    #                   args.num_topics, args.num_personas,
-    #                   args.batch_size, args.queue_size,
-    #                   args.learning_offset, int(100 * args.learning_decay),
-    #                   int(100 * args.process_noise), int(100 * args.measurement_noise),
-    #                   int(100 * args.regularization), args.normalization, args.num_workers)
-    #    logging.basicConfig(filename=filename, format=log_format, level=logging.INFO)
-    #else:
-    #    logging.basicConfig(format=log_format, level=logging.INFO)
+
+    disable_log = True
+    if disable_log:
+        logging.disable(logging.INFO)
+    else:
+        log_format = '%(asctime)s : %(levelname)s : %(message)s'
+        log_dir = os.path.join(path_to_current_file, "../../scripts/log/sotu/")
+        if args.log:
+           filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
+                      '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
+                          args.num_topics, args.num_personas,
+                          args.batch_size, args.queue_size,
+                          args.learning_offset, int(100 * args.learning_decay),
+                          int(100 * args.process_noise), int(100 * args.measurement_noise),
+                          int(100 * args.regularization), args.normalization, args.num_workers)
+           logging.basicConfig(filename=filename, format=log_format, level=logging.INFO)
+        else:
+           logging.basicConfig(format=log_format, level=logging.INFO)
 
     np.random.seed(2018)
 
