@@ -2,7 +2,7 @@ import numpy as np
 from src.corpus import Corpus
 from src.dapper import DAPPER
 import time
-import logging
+#import logging
 import os
 import argparse
 
@@ -45,22 +45,22 @@ def main():
     parser.set_defaults(corpus_in_memory=False)
     args = parser.parse_args()
 
-    logger = logging.getLogger(__name__)
-    log_format = '%(asctime)s : %(levelname)s : %(message)s'
+    #logger = logging.getLogger(__name__)
+    #log_format = '%(asctime)s : %(levelname)s : %(message)s'
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
-    log_dir = os.path.join(path_to_current_file, "../../scripts/log/cb_cv0_96hrs/")
-    save_log = True
-    if args.log:
-        filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
-                   '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
-                       args.num_topics, args.num_personas,
-                       args.batch_size, args.queue_size,
-                       args.learning_offset, int(100 * args.learning_decay),
-                       int(100 * args.process_noise), int(100 * args.measurement_noise),
-                       int(100 * args.regularization), args.normalization, args.num_workers)
-        logging.basicConfig(filename=filename, format=log_format, level=logging.INFO)
-    else:
-        logging.basicConfig(format=log_format, level=logging.INFO)
+    #log_dir = os.path.join(path_to_current_file, "../../scripts/log/cb_cv0_96hrs/")
+    #save_log = True
+    #if args.log:
+    #    filename = log_dir + time.strftime('%m_%d_%Y_%H%M') +\
+    #               '_K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_{}_cpu{}.log'.format(
+    #                   args.num_topics, args.num_personas,
+    #                   args.batch_size, args.queue_size,
+    #                   args.learning_offset, int(100 * args.learning_decay),
+    #                   int(100 * args.process_noise), int(100 * args.measurement_noise),
+    #                   int(100 * args.regularization), args.normalization, args.num_workers)
+    #    logging.basicConfig(filename=filename, format=log_format, level=logging.INFO)
+    #else:
+    #    logging.basicConfig(format=log_format, level=logging.INFO)
 
     np.random.seed(2018)
 
@@ -76,17 +76,15 @@ def main():
                  learning_offset=args.learning_offset, learning_decay=args.learning_decay,
                  num_workers=args.num_workers)
 
-    path_to_current_file = os.path.abspath(os.path.dirname(__file__))
     data_dir = os.path.join(path_to_current_file, "../../data/sotu/")
 
     train = Corpus(input_file=data_dir + "sotu_train.txt", vocab_file=data_dir + "sotu_dpp_vocab.txt")
     test = Corpus(input_file=data_dir + "sotu_test.txt",
               vocab_file=data_dir + "sotu_dpp_vocab.txt", author2id=train.author2id)
 
-    logger.info("Fitting model and evaluating every {} EM iterations.".format(args.evaluate_every))
     train_results, test_results = dap.fit_predict(train_corpus=train, test_corpus=test,
                                                   evaluate_every=args.evaluate_every)
-    logger.info(dap)
+    print(dap)
 
     # save model output
     results_dir = os.path.join(path_to_current_file, "../../results/sotu/")
