@@ -143,11 +143,14 @@ def clean_text(sotu):
 def main():
     # loop through each paragraph in each speech, collect keys and preprocess each text
     data_dir = "../../data/sotu/"
+    # infile = "sotu_doc_per_paragraph.txt"
+    infile = "sotu_1901_2016.txt"
+
     paragraphs_per_speech = {} # total number of paragraphs per speech
     docs = []
     keys = []
     author_doc_num = 0
-    with open(data_dir + "sotu_doc_per_paragraph.txt", "r") as ifile:
+    with open(data_dir + infile, "r") as ifile:
         for i, line in enumerate(ifile):
             line = line.replace("\n", "")
 
