@@ -1,5 +1,7 @@
 import re
 from gensim import corpora
+import datetime
+import subprocess
 import logging
 import os
 import numpy as np
@@ -57,7 +59,12 @@ percent = re.compile(" per cent ", re.IGNORECASE)
 times = re.compile(r"(2[0-3]|[01]?[0-9]):([0-5]?[0-9])")
 dates = re.compile(r"\b1?[0-9]?[-/]1?[0-9]?[-/](18|19|20)?[0-9]{2}\b")
 punct = re.compile(r"[^a-zA-Z_ ]")
+united_states_of_america = re.compile(r"\bunited states of america\b", re.IGNORECASE)
 united_states = re.compile(r"\bunited states\b", re.IGNORECASE)
+usp = re.compile(r"\bU.S.\b")
+usap = re.compile(r"\bU.S.A\b")
+us = re.compile(r"\bUS\b")
+usa = re.compile(r"\bUSA\b")
 
 def get_wordnet_pos(treebank_tag):
     """
@@ -120,7 +127,12 @@ def clean_text(sotu):
     sotu = have.sub(" have", sotu)
 
     # capture common patterns
-    sotu = united_states.sub(" united_states ", sotu)
+    sotu = united_states_of_america.sub(" _usa_ ", sotu)
+    sotu = united_states.sub(" _usa_ ", sotu)
+    sotu = us.sub(" _usa_ ", sotu)
+    sotu = usa.sub(" _usa_ ", sotu)
+    sotu = usp.sub(" _usa_ ", sotu)
+    sotu = usap.sub(" _usa_ ", sotu)
     sotu = years.sub(" _year_ ", sotu)
     sotu = dollars.sub(" _dollars_ ", sotu)
     sotu = percent.sub(" percent ", sotu)
@@ -140,16 +152,38 @@ def clean_text(sotu):
     return sotu
 
 
+def doc_generator(fname):
+    with open(fname, "r") as f:
+        for line in f:
+            fields = line.replace("\n", "").split("\t")
+            doc = fields[-1]
+            yield doc.split()
+
+
+def keys_generator(fname):
+    """
+    returns generator of (timestep, author) pairs
+    """
+    with open(fname, "r") as f:
+        for line in f:
+            fields = line.replace("\n", "").split("\t")
+            yield int(fields[0]), fields[1]
+
+
+
 def main():
     # loop through each paragraph in each speech, collect keys and preprocess each text
     data_dir = "../../data/sotu/"
     # infile = "sotu_doc_per_paragraph.txt"
-    infile = "sotu_1901_2016.txt"
+    # infile = "sotu_1901_2016.txt"
+    infile = "sotu_raw.txt"
+    min_year = 1901
 
-    paragraphs_per_speech = {} # total number of paragraphs per speech
+    words_per_speech = {} # total number of lines per speech
     docs = []
     keys = []
-    author_doc_num = 0
+    year = None
+    word_count = 0
     with open(data_dir + infile, "r") as ifile:
         for i, line in enumerate(ifile):
             line = line.replace("\n", "")
@@ -157,36 +191,38 @@ def main():
             if line[0:3] == "***":
                 # this line is the beginning of a new speech
                 fields = line.split("\t")
-                author = '_'.join(fields[2:4]).replace(' ', '_').replace('.', '_').replace(",", "_")
-                author = re.sub("_+", "_", author)
-                author_doc_num = 0
-
-                keys.append((author, author_doc_num))
-                doc = clean_text(fields[4])
-                docs.append(doc)
-
-                paragraphs_per_speech[author] = 1
+                author = fields[1].replace(' ', '_').replace('.', '_').replace(",", "_")
+                year = int(fields[2][-4:])
+                speech = str(year) + "_" + author
+                word_count = 0
+                text = fields[-1]
             else:
-                author_doc_num += 1
-                doc = clean_text(line)
-                docs.append(doc)
-                keys.append((author, author_doc_num))
-                paragraphs_per_speech[author] = author_doc_num
+                # another line from the same speech
+                text = line
 
-    print("Number of paragraphs in each speech:")
-    for a, m in paragraphs_per_speech.items():
-        print(a, m)
+            if year < min_year:
+                continue
+
+            doc = clean_text(text)
+            docs.append(doc)
+            keys.append((speech, word_count)) # save word count at the start of this document
+            words_per_speech[speech] = word_count
+            word_count += len(doc)
+
+
+    print("Number of words in each speech:")
+    for a, n in words_per_speech.items():
+        print(a, n)
 
 
 
     # normalize timesteps so each document's "time step" indicates position in speech [0, 100]
     norm_keys = []
-    for author, author_doc_num in keys:
-        norm_keys.append((author, int(round(100.0 * author_doc_num / paragraphs_per_speech[author]))))
+    for speech, word_count in keys:
+        norm_keys.append((speech, int(round(100.0 * word_count / words_per_speech[speech]))))
 
     keys = norm_keys
-
-    # sort documents by time then author
+    # sort documents by time then speech
     docs = np.array(docs)
     keys = np.array(keys)
     sorting_values = np.array([str(n).zfill(4) + a for a, n in zip(keys[:, 0], keys[:, 1])])
@@ -196,33 +232,45 @@ def main():
 
 
     # how many docs per time step
-    timesteps = {}
+    timestep_counts = {}
     for _, timestep in keys:
         ts = int(timestep)
-        if ts not in timesteps:
-            timesteps[ts] = 1
+        if ts not in timestep_counts:
+            timestep_counts[ts] = 1
         else:
-            timesteps[ts] += 1
+            timestep_counts[ts] += 1
 
     # write out the keys and cleaned text to seperate file, possibly useful later
-    with open(data_dir + "sotu_dpp_keys.txt", "w") as out_keys, open(data_dir + "sotu_dpp_clean.txt", "w") as out_text:
-        for (author, author_doc_num), text_arr in zip(keys, docs):
-            out_keys.write("\t".join([str(author), str(author_doc_num)]) + "\n")
-            out_text.write(' '.join(text_arr) + "\n")
+    with open(data_dir + "sotu_bow.txt", "w") as outfile:
+        for (speech, pct_in_speech), doc in zip(keys, docs):
+            outfile.write(str(pct_in_speech) + "\t" + str(speech) + "\t" + ' '.join(doc) + "\n")
+
+
+    resort = False
+    if resort:
+        print("sorting keys and docs")
+        cmd = """/bin/bash -c "sort %s -n -t $'\t' -k1,1 -k2,2 -o %s -S %s" """ % ("sotu_bow.txt", "sotu_bow.txt", "75%")
+        subprocess.call(cmd, shell=True)
+
 
     build_corpus = True
     if build_corpus:
-        # convert docs to a proper LDA-C formatted corpus
+        print("creating vocab")
+        docs = doc_generator(data_dir + "sotu_bow.txt")
         vocab = corpora.Dictionary(docs)
         vocab.filter_extremes(no_below=3, no_above=0.95, keep_n=10000)
         vocab.compactify()
-        corpus = (vocab.doc2bow(tokens) for tokens in docs)
+
+        corpus = (vocab.doc2bow(tokens) for tokens in doc_generator(data_dir + "sotu_bow.txt"))
         corpora.MmCorpus.serialize(data_dir + 'sotu.mm', corpus)
         corpus = corpora.MmCorpus(data_dir + 'sotu.mm')
-        corpora.BleiCorpus.save_corpus(data_dir + 'sotu_dpp.ldac', corpus, id2word=vocab)
+        corpora.BleiCorpus.save_corpus(data_dir + 'sotu.ldac', corpus, id2word=vocab)
         os.remove(data_dir + "sotu.mm")
         os.remove(data_dir + "sotu.mm.index")
-        os.rename(data_dir + "sotu_dpp.ldac.vocab", data_dir + "sotu_dpp_vocab.txt")
+        os.rename(data_dir + "sotu.ldac.vocab", data_dir + "sotu_vocab.txt")
+        del docs
+        del corpus
+        del vocab
 
     # write out data in format for DAP model:
     # total_timesteps
@@ -239,30 +287,31 @@ def main():
     # author num_terms term_0:count ... term_n:count
     dap = True
     if dap:
-        num_timesteps = len(timesteps)
-        lda_file = open(data_dir + "sotu_dpp.ldac", "r")
-        keys_ptr = 0
-        with open(data_dir + "sotu_dpp_dap.txt", "w") as dap_file:
+        num_timesteps = len(timestep_counts)
+        lda_file = open(data_dir + "sotu.ldac", "r")
+        prev_ts = -1
+        with open(data_dir + "sotu_full.txt", "w") as dap_file:
             dap_file.write(str(num_timesteps) + "\n")
-            for ts in sorted(timesteps.keys(), key=lambda x: int(x)):
-                dap_file.write(str(ts) + "\n")
-                num_docs = timesteps[ts]
-                dap_file.write(str(num_docs) + "\n")
-                for d in range(num_docs):
-                    ldac = lda_file.readline()
-                    author = keys[keys_ptr, 0]
-                    dap_file.write(author + " " + ldac)
-                    keys_ptr += 1
+            for ts, speech in keys_generator(data_dir + "sotu_bow.txt"):
+                if ts != prev_ts:
+                    # new time step
+                    dap_file.write(str(ts) + "\n")
+                    dap_file.write(str(timestep_counts[ts]) + "\n")
+
+                # otherwise, write out next speech + doc
+                ldac = lda_file.readline()
+                dap_file.write(speech + " " + ldac)
+                prev_ts = ts
 
         lda_file.close()
-        os.remove(data_dir + 'sotu_dpp.ldac')
+        os.remove(data_dir + 'sotu.ldac')
 
     split = True
     if split:
         # split DAP file into training and test sets
         print("Split into training and test sets")
         pct_train = 0.1
-        with open(data_dir + "sotu_dpp_dap.txt", "r") as dap_file, \
+        with open(data_dir + "sotu_full.txt", "r") as dap_file, \
             open(data_dir + "sotu_train.txt", "w") as train, \
             open(data_dir + "sotu_test.txt", "w") as test:
             num_timesteps = int(dap_file.readline().replace("\n", ""))
