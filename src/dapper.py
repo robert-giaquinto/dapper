@@ -24,7 +24,7 @@ class DAPPER(object):
                  process_noise=0.1, measurement_noise=0.8, regularization=0.0, normalization="sum",
                  max_epochs=25, max_training_minutes=0,
                  local_convergence=1e-03, step_size=0.7, queue_size=10,
-                 max_local_iters=50, batch_size=-1, learning_offset=10, learning_decay=0.7,
+                 max_local_iters=30, batch_size=-1, learning_offset=10, learning_decay=0.7,
                  num_workers=1):
         self.batch_size = batch_size
         self.learning_offset = learning_offset
@@ -54,8 +54,8 @@ class DAPPER(object):
         Check that given parameters to the model are legitimate.
         :return:
         """
-        if self.num_personas is None or self.num_personas <= 0:
-            raise ValueError("number of personas > 0")
+        if self.num_personas is None or self.num_personas < 0:
+            raise ValueError("number of personas >= 0")
         if self.num_topics is None or self.num_topics <= 0:
             raise ValueError("number of topics > 0")
         if self.num_workers > cpu_count():
@@ -114,6 +114,8 @@ class DAPPER(object):
         self.num_authors = corpus.num_authors
         self.vocab = np.array(corpus.vocab)
         self.id2author = {y: x for x, y in corpus.author2id.items()}
+        if self.num_personas == 0:
+            self.num_personas = corpus.num_authors
 
     def parameter_init(self):
         # initialize matrices
@@ -570,7 +572,11 @@ class DAPPER(object):
             doc_topic_param_1 = np.zeros(self.num_topics)
             doc_topic_param_2 = np.zeros(self.num_topics)
             doc_persona_param = np.zeros(self.num_personas)
-            doc_tau = np.ones(self.num_personas) * (1.0 / self.num_personas)
+            if self.num_personas == self.num_authors:
+                doc_tau = np.zeros(self.num_personas)
+                doc_tau[doc.author_id] = 1.0
+            else:
+                doc_tau = np.ones(self.num_personas) * (1.0 / self.num_personas)
             doc_word_count = np.sum(doc.counts)
 
             # update zeta in close form
@@ -590,8 +596,9 @@ class DAPPER(object):
                     doc_topic_param_1, doc_topic_param_2, doc_zeta_factor, doc_tau, sum_phi, doc_word_count, doc.time_id)
 
                 # CVI update to tau
-                doc_tau, doc_persona_param = self.cvi_tau_update(doc_tau, doc_persona_param, doc_m,
-                                                                 doc.time_id, doc.author_id)
+                if self.num_personas != self.num_authors:
+                    doc_tau, doc_persona_param = self.cvi_tau_update(doc_tau, doc_persona_param, doc_m,
+                                                                     doc.time_id, doc.author_id)
 
                 # update zeta in closed form
                 doc_zeta_factor = doc_m + 0.5 * doc_vsq
@@ -836,8 +843,8 @@ class DAPPER(object):
                                      0.0, 0.0, test_words_pwll, convergence,
                                      epoch_time, elapsed_time, total_training_docs])
                 #self.print_topics_over_time(5)
-                #self.print_author_personas()
-                #self.print_topics(topn=8)
+                self.print_author_personas()
+                self.print_topics(topn=8)
                 # report stats on this epoch
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
@@ -1037,7 +1044,11 @@ def _doc_e_step_worker(input_queue, result_queue):
             doc_topic_param_1 = np.zeros(dap.num_topics)
             doc_topic_param_2 = np.zeros(dap.num_topics)
             doc_persona_param = np.zeros(dap.num_personas)
-            doc_tau = np.ones(dap.num_personas) * (1.0 / dap.num_personas)
+            if dap.num_personas == dap.num_authors:
+                doc_tau = np.zeros(dap.num_personas)
+                doc_tau[doc.author_id] = 1.0
+            else:
+                doc_tau = np.ones(dap.num_personas) * (1.0 / dap.num_personas)
             doc_word_count = np.sum(doc.counts)
 
             # update zeta in close form
@@ -1058,7 +1069,8 @@ def _doc_e_step_worker(input_queue, result_queue):
                     doc_word_count, doc.time_id)
 
                 # CVI update to tau
-                doc_tau, doc_persona_param = dap.cvi_tau_update(doc_tau, doc_persona_param, doc_m,
+                if dap.num_personas != dap.num_authors:
+                    doc_tau, doc_persona_param = dap.cvi_tau_update(doc_tau, doc_persona_param, doc_m,
                                                                 doc.time_id, doc.author_id)
 
                 # update zeta in closed form
