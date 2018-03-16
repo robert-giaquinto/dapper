@@ -689,7 +689,7 @@ class DAPPER(object):
                 # report stats after each full epoch
                 self.total_epochs += 1
                 #self.print_topics_over_time(5)
-                #self.print_author_personas(max_show=25)
+                #self.print_author_personas()
                 #self.print_topics(topn=8)
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
