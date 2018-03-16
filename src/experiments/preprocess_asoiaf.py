@@ -115,6 +115,8 @@ def main():
     characters = ["AERON", "AREO", "ARIANNE", "ARYA", "ARYS", "ASHA", "BARRISTAN", "BRAN", "BRIENNE", "CATELYN", "CERSEI", "CONNINGTON", "DAENERYS", "DAVOS", "EDDARD", "JAIME", "JON", "MELISANDRE", "QUENTYN", "SAMWELL", "SANSA", "THEON", "TYRION", "VICTARION"]
     chapter_counts = {name: 0 for name in characters}
     wpc = {name: 0 for name in characters}  # words per character
+    n = 0
+    total_wc = 0
 
     with open(data_dir + "asoiaf.txt", "r") as f:
         for line in f:
@@ -123,13 +125,21 @@ def main():
                 # new chapter
                 chapter_counts[line] += 1
                 current_char = line
-                current_chapter = chapter_counts[line]
             else:
                 # continuation of previous chapter
                 text = clean_text(line)
-                keys.append([current_char, wpc[current_char]])
-                docs.append(text)
+                if len(text) < 10:
+                    # super short line, just add to previous line
+                    docs[-1] += text
+                else:
+                    keys.append([current_char, wpc[current_char]])
+                    docs.append(text)
+
                 wpc[current_char] += len(text)
+                n += 1
+                total_wc += len(text)
+
+    print("total_wc / n = {}".format(1.0 * total_wc / n))
 
     print("Number of words in each speech:")
     for c, wc in wpc.items():

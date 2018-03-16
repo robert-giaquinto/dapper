@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--measurement_noise', type=float, default=0.8)
     parser.add_argument('--num_topics', type=int, default=30)
     parser.add_argument('--num_personas', type=int, default=20)
-    parser.add_argument('--regularization', type=float, default=0.2,
+    parser.add_argument('--regularization', type=float, default=0.1,
                         help="How much to penalize similar personas. Recommend [0, 0.5].")
     parser.add_argument('--batch_size', type=int, default=0,
                         help="Batch size. Set to -1 for full gradient updates, else stochastic minibatches used.")
@@ -59,13 +59,13 @@ def main():
 
     data_dir = os.path.join(path_to_current_file, "../../data/asoiaf/")
 
-    train = Corpus(input_file=data_dir + "asoiaf_train.txt", vocab_file=data_dir + "asoiaf_vocab.txt")
-    test = Corpus(input_file=data_dir + "asoiaf_test.txt",
-              vocab_file=data_dir + "asoiaf_vocab.txt", author2id=train.author2id)
+    train = Corpus(input_file=data_dir + "asoiaf_full.txt", vocab_file=data_dir + "asoiaf_vocab.txt")
+    # test = Corpus(input_file=data_dir + "asoiaf_test.txt", vocab_file=data_dir + "asoiaf_vocab.txt", author2id=train.author2id)
 
-    train_results, test_results = dap.fit_predict(train_corpus=train, test_corpus=test,
-                                                  evaluate_every=args.evaluate_every,
-                                                  random_beta=True)
+    # train_results, test_results = dap.fit_predict(train_corpus=train, test_corpus=test,
+    #                                               evaluate_every=args.evaluate_every,
+    #                                               random_beta=True)
+    train_results = dap.fit(corpus=train, random_beta=True)
     print(dap)
 
     # save model output
@@ -81,7 +81,7 @@ def main():
     dap.save_author_personas(filename=results_dir + "personas_" + model_sig)
     dap.save_persona_topics(filename=results_dir + "alpha_" + model_sig)
     dap.save_convergnces(filename=results_dir + "train_convergence_" + model_sig, results=train_results)
-    dap.save_convergnces(filename=results_dir + "test_convergence_" + model_sig, results=test_results)
+    # dap.save_convergnces(filename=results_dir + "test_convergence_" + model_sig, results=test_results)
 
 
 if __name__ == "__main__":

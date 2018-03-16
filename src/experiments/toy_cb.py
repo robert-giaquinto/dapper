@@ -25,8 +25,6 @@ def main():
     num_personas = 4
 
     max_epochs = 2
-    e_iter = 30
-    em_convergence = 1e-4
 
     num_workers = 2
 
@@ -45,8 +43,8 @@ def main():
     dap = DAPPER(num_topics=num_topics, num_personas=num_personas,
                  process_noise=pn, measurement_noise=mn,
                  regularization=regularization, normalization=normalization,
-                 max_epochs=max_epochs, em_convergence=em_convergence,
-                 step_size=step_size, local_param_iter=e_iter,
+                 max_epochs=max_epochs,
+                 step_size=step_size,
                  batch_size=batch_size, queue_size=queue_size,
                  learning_offset=learning_offset, learning_decay=learning_decay,
                  num_workers=num_workers)
