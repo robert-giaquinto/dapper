@@ -843,8 +843,8 @@ class DAPPER(object):
                                      0.0, 0.0, test_words_pwll, convergence,
                                      epoch_time, elapsed_time, total_training_docs])
                 #self.print_topics_over_time(5)
-                self.print_author_personas()
-                self.print_topics(topn=8)
+                #self.print_author_personas()
+                #self.print_topics(topn=8)
                 # report stats on this epoch
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
