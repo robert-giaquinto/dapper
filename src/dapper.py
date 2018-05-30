@@ -367,13 +367,6 @@ class DAPPER(object):
         # compute the beta terms lhood
         rval = self.num_topics * (gammaln(np.sum(self.eta)) - np.sum(gammaln(self.eta)))
         rval += np.sum(np.sum(gammaln(self._lambda), axis=1) - gammaln(np.sum(self._lambda, axis=1)))
-
-        # # calculation used in online LDA code (doesn't give a reasonable value though...)
-        # E_log_beta = psi(self._lambda) - psi(self._lambda.sum(axis=1, keepdims=True))
-        # t1 = np.sum((self.eta - self._lambda) * E_log_beta)
-        # t2 = np.sum(gammaln(self._lambda) - gammaln(self.eta))
-        # t3 = np.sum(gammaln(self.vocab_size * self.eta) - gammaln(np.sum(self._lambda, axis=1)))
-        # old = t1 + t2 + t3
         return rval
 
     def compute_author_lhood(self):
@@ -462,7 +455,7 @@ class DAPPER(object):
         lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.E_log_beta[:, doc.words])
         return lhood
 
-    def em_step_s(self, docs, total_docs):
+    def em_step_s(self, docs, total_docs, check_model_lhood=True):
         """
         Performs stochastic EM-update for one iteration using a mini-batch of documents
         and compute the training log-likelihood
@@ -475,9 +468,9 @@ class DAPPER(object):
         clock_e_step = time.process_time()
         if self.num_workers > 1:
             # run e-step in parallel
-            batch_lhood, words_lhood = self.e_step_parallel(docs=docs, save_ss=True)
+            batch_lhood, words_lhood = self.e_step_parallel(docs=docs, save_ss=True, check_model_lhood=check_model_lhood)
         else:
-            batch_lhood, words_lhood = self.e_step(docs=docs, save_ss=True)
+            batch_lhood, words_lhood = self.e_step(docs=docs, save_ss=True, check_model_lhood=check_model_lhood)
         clock_e_step = time.process_time() - clock_e_step
         doc_lhood = batch_lhood * total_docs / batch_size
 
@@ -500,7 +493,7 @@ class DAPPER(object):
         total_time = clock_e_step + clock_m_step
         return model_lhood, words_lhood, total_time
 
-    def e_step_parallel(self, docs, save_ss):
+    def e_step_parallel(self, docs, save_ss, check_model_lhood):
         batch_size = len(docs)
 
         # setup stream that returns chunks of documents at each iteration
@@ -541,7 +534,7 @@ class DAPPER(object):
                 chunk_put = False
                 while not chunk_put:
                     try:
-                        args = (self, doc_mini_batch, save_ss)
+                        args = (self, doc_mini_batch, save_ss, check_model_lhood)
                         job_queue.put(args, block=False, timeout=0.1)
                         chunk_put = True
                         queue_size[0] += 1
@@ -558,7 +551,7 @@ class DAPPER(object):
 
         return batch_lhood[0], words_lhood[0]
 
-    def e_step(self, docs, save_ss=True):
+    def e_step(self, docs, save_ss=True, check_model_lhood=True):
         """
         E-step: update the variational parameters for topic proportions and topic assignments.
         """
@@ -615,9 +608,10 @@ class DAPPER(object):
             if save_ss:
                 self.ss.update(doc, doc_m, doc_tau, log_phi)
 
-                # if updating the model (save_ss) then also compute variational likelihoods
-                batch_lhood_d = self.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
-                batch_lhood += batch_lhood_d
+                if check_model_lhood:
+                    # if updating the model (save_ss) then also compute variational likelihoods
+                    batch_lhood_d = self.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
+                    batch_lhood += batch_lhood_d
 
             if SHOW_EVERY > 0 and doc.doc_id % SHOW_EVERY == 0:
                 logger.info("Variational parameters for document: {}, converged in {} steps".format(doc.doc_id, iters))
@@ -634,7 +628,7 @@ class DAPPER(object):
         Training and testing
     ================================================================================================================="""
 
-    def fit(self, corpus, random_beta=False):
+    def fit(self, corpus, random_beta=False, check_model_lhood=True):
         """
         Performs EM-update until reaching target average change in the log-likelihood
         """
@@ -646,7 +640,7 @@ class DAPPER(object):
         else:
             self.init_beta_from_corpus(corpus=corpus)
 
-        if self.batch_size <= 0:
+        if self.batch_size == 0:
             batch_size = corpus.total_documents
         else:
             batch_size = self.batch_size
@@ -663,7 +657,9 @@ class DAPPER(object):
             finished_epoch = True
             for batch_id, doc_ids in enumerate(batches):
                 batch = [corpus.docs[d] for d in doc_ids]
-                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch, total_docs=corpus.total_documents)
+                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch,
+                                                                                  total_docs=corpus.total_documents,
+                                                                                  check_model_lhood=check_model_lhood)
 
                 train_model_pwll = train_model_lhood / corpus.total_words
                 train_words_pwll = train_words_lhood / np.sum([np.sum(d.counts) for d in batch])
@@ -690,7 +686,7 @@ class DAPPER(object):
                 self.total_epochs += 1
                 #self.print_topics_over_time(5)
                 #self.print_author_personas()
-                #self.print_topics(topn=8)
+                self.print_topics(topn=8)
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
                     train model lhood: {:.1f}, model per-word log-lhood: {:.2f}, words per-word log-lhood: {:.2f}, convergence: {:.3f},
@@ -771,7 +767,7 @@ class DAPPER(object):
             test_words_lhood, test_words_pwll))
         return test_words_lhood, test_words_pwll
 
-    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None, random_beta=False):
+    def fit_predict(self, train_corpus, test_corpus, evaluate_every=None, random_beta=False, check_model_lhood=True):
         """
         Computes the heldout-log likelihood on the test corpus after "evaluate_every" iterations
         (mini-batches) of training.
@@ -806,7 +802,9 @@ class DAPPER(object):
             for batch_id, doc_ids in enumerate(batches):
                 # do an EM iteration on this batch
                 batch = [train_corpus.docs[d] for d in doc_ids]
-                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch, total_docs=train_corpus.total_documents)
+                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch,
+                                                                                  total_docs=train_corpus.total_documents,
+                                                                                  check_model_lhood=check_model_lhood)
 
                 # collect stats from EM iteration
                 train_model_pwll = train_model_lhood / train_corpus.total_words
@@ -844,7 +842,7 @@ class DAPPER(object):
                                      epoch_time, elapsed_time, total_training_docs])
                 #self.print_topics_over_time(5)
                 #self.print_author_personas()
-                #self.print_topics(topn=8)
+                self.print_topics(topn=8)
                 # report stats on this epoch
                 docs_per_hour = total_training_docs / (epoch_time / 60.0 / 60.0)
                 log_str = """{} Epochs Completed
@@ -1024,7 +1022,7 @@ class DAPPER(object):
 
 def _doc_e_step_worker(input_queue, result_queue):
     while True:
-        dap, docs, save_ss = input_queue.get()
+        dap, docs, save_ss, check_model_lhood = input_queue.get()
 
         if save_ss:
             # initialize sufficient statistics to gather information learned from each doc
@@ -1080,15 +1078,16 @@ def _doc_e_step_worker(input_queue, result_queue):
                 if mean_change < dap.local_convergence:
                     break
 
-            if save_ss:
-                ss.update(doc, doc_m, doc_tau, log_phi)
-
-            # compute likelihoods
-            batch_lhood_d = dap.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
-            batch_lhood += batch_lhood_d
             words_lhood_d = dap.compute_word_lhood(doc, log_phi)
             words_lhood += words_lhood_d
+            if save_ss:
+                ss.update(doc, doc_m, doc_tau, log_phi)
+                if check_model_lhood:
+                    # compute likelihoods
+                    batch_lhood_d = dap.compute_doc_lhood(doc, doc_tau, doc_m, doc_vsq, log_phi)
+                    batch_lhood += batch_lhood_d
 
+        # clean up and save results
         del docs
         del dap
 
