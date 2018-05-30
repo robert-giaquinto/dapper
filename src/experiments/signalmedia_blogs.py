@@ -12,6 +12,14 @@ def main():
     :return:
     """
     parser = argparse.ArgumentParser(description='Run dap model on signalmedia data.')
+    parser.add_argument('--train_file', type=str, help='Path to training data file.',
+                        default="train_signalmedia.dap")
+    parser.add_argument('--test_file', type=str, help='Path to testing data file. If None, no prediction is run',
+                        default="test_signalmedia.dap")
+    parser.add_argument('--vocab_file', type=str, help='Path to vocabulary file.',
+                        default="signalmedia.bow.vocab")
+    parser.add_argument('--data_dir', type=str, help='directory where all data files reside.',
+                        default="../../data/signalmedia/blogs_aligned_3_30/")
     parser.add_argument('--evaluate_every', type=int,
                         help="If given a test file, number of EM iterations between evaluations of test set. Default of 0 = evaluate after each epoch.")
     parser.add_argument('--max_training_minutes', type=float,
@@ -24,15 +32,7 @@ def main():
     parser.add_argument('--regularization', type=float, default=0.1,
                         help="How much to penalize similar personas. Recommend [0, 0.5].")
     parser.add_argument('--batch_size', type=int, default=512,
-                        help="Batch size. Set to -1 for full gradient updates, else stochastic minibatches used.")
-    parser.add_argument('--learning_offset', type=int, default=10,
-                        help="Learning offset used to control rate of convergence of gradient updates.")
-    parser.add_argument('--learning_decay', type=float, default=0.7,
-                        help="Learning decay rate used to control rate of convergence of gradient updates.")
-    parser.add_argument('--step_size', type=float, default=0.7,
-                        help="Learning rate for CVI updates.")
-    parser.add_argument('--queue_size', type=int, default=1,
-                        help="Number of previous gradient to average over for smoothed gradient updates. Default 1 = no smoothing.")
+                        help="Batch size. Set to -1 for full gradient updates, else stochastic mini-batches used.")
     parser.add_argument('--num_workers', type=int, default=1)
     args = parser.parse_args()
 
@@ -52,31 +52,34 @@ def main():
                  regularization=args.regularization,
                  normalization="sum",
                  max_epochs=args.max_epochs, max_training_minutes=args.max_training_minutes,
-                 step_size=args.step_size,
-                 batch_size=args.batch_size, queue_size=args.queue_size,
-                 learning_offset=args.learning_offset, learning_decay=args.learning_decay,
+                 batch_size=args.batch_size,
+                 step_size=0.7, queue_size=1, learning_offset=10, learning_decay=0.7,
                  num_workers=args.num_workers)
 
-    data_dir = os.path.join(path_to_current_file, "../../data/signalmedia/blogs_aligned_3_30/")
+    if not os.path.exists(args.data_dir):
+        os.makedirs(args.data_dir)
 
     # train = Corpus(input_file=data_dir + "signalmedia.dap", vocab_file=data_dir + "signalmedia.bow.vocab")
-    train = Corpus(input_file=data_dir + "train_signalmedia.dap", vocab_file=data_dir + "signalmedia.bow.vocab")
-    test = Corpus(input_file=data_dir + "test_signalmedia.dap",
-                  vocab_file=data_dir + "signalmedia.bow.vocab", author2id=train.author2id)
+    train = Corpus(input_file=args.data_dir + args.train_file, vocab_file=args.data_dir + args.vocab_file)
+    test = Corpus(input_file=args.data_dir + args.test_file,
+                  vocab_file=args.data_dir + args.vocab_file,
+                  author2id=train.author2id)
 
     train_results, test_results = dap.fit_predict(train_corpus=train, test_corpus=test,
                                                   evaluate_every=args.evaluate_every,
                                                   random_beta=False,
-                                                  check_model_lhood=False)
+                                                  check_model_lhood=True)
     # train_results = dap.fit(corpus=train, random_beta=False, check_model_lhood=False)
     print(dap)
 
     # save model output
-    results_dir = os.path.join(path_to_current_file, "../../results/signalmedia/blogs_aligned_3_30/")
-    model_sig = "K{}_P{}_bs{}_q{}_lo{}_ld{}_pn{}_mn{}_reg{}_epochs{}_cpu{}_{}.txt".format(
+    results_dir = args.data_dir.replace("/data/", "/results/")
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+
+    model_sig = "K{}_P{}_bs{}_pn{}_mn{}_reg{}_epochs{}_cpu{}_{}.txt".format(
         args.num_topics, args.num_personas,
-        args.batch_size, args.queue_size,
-        args.learning_offset, int(100 * args.learning_decay),
+        args.batch_size,
         int(100 * args.process_noise), int(100 * args.measurement_noise),
         int(100 * args.regularization), dap.total_epochs,
         args.num_workers, time.strftime('%m_%d_%Y_%H%M'))
