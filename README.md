@@ -54,6 +54,11 @@ See /docs/dap_2018_arxiv.pdf for technical information on the dynamic author-per
 
    See /scripts/ for examples of running the model and setting various model parameters.
 
+
+7. Getting data
+
+   See http://research.signalmedia.co/newsir16/signal-dataset.html for the signalmedia dataset. Codes for preprocessing this data are included in src/experiments/preprocess_signalmedia.py
+
 ## Project Structure ##
 * `docs/` - Documentation on the model, including derivation and papers related to the model.
 * `log/` - Log files from running the programs.

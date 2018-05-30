@@ -9,5 +9,6 @@ DAPPER.egg-info/
 .Rproj.user
 data/cb*/
 data/full*/
+data/signalmedia/*
 src/experiments/cb*.py
 src/experiments/full*.py
