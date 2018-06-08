@@ -12,3 +12,13 @@ data/full*/
 data/signalmedia/*
 src/experiments/cb*.py
 src/experiments/full*.py
+data/archive/
+data/asoiaf/
+data/sotu/
+src/experiments/asoiaf.py
+src/experiments/dap2dtm.py
+src/experiments/lda.py
+src/experiments/preprocess_asoiaf.py
+src/experiments/sotu.py
+src/experiments/sotu_1901_2016.py
+src/experiments/toy_cb.py
