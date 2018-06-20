@@ -21,11 +21,28 @@ class DAPPER(object):
     """
 
     def __init__(self, num_topics, num_personas,
-                 process_noise=0.1, measurement_noise=0.8, regularization=0.0, normalization="sum",
-                 max_epochs=25, max_training_minutes=0,
-                 local_convergence=1e-03, step_size=0.7, queue_size=10,
+                 process_noise=0.1, measurement_noise=0.8, regularization=0.2,
+                 max_epochs=5, max_training_minutes=0,
+                 local_convergence=1e-03, step_size=0.7, queue_size=1,
                  max_local_iters=30, batch_size=-1, learning_offset=10, learning_decay=0.7,
                  num_workers=1):
+        """
+        :param num_topics: number of topics to find
+        :param num_personas: number of personas (latent author clusters)
+        :param process_noise: 1st parameter controlling smoothness of topics, between 0.1 and 0.3 ideal.
+        :param measurement_noise: 2nd parameter controlling smoothness of topics, leave fixed at 0.8
+        :param regularization: penalty for similar personas, good results typically with 0.1 to 0.3
+        :param max_epochs: maximum passes over the dataset for training
+        :param max_training_minutes: maximum number of minutes of training
+        :param local_convergence: local variational convergence criteria
+        :param step_size: step size of CVI updates
+        :param queue_size: leave at 1, smoothing gradients doesn't seem to help
+        :param max_local_iters: max number of iteretions to run for location variables (assuming no convergence)
+        :param batch_size: mini-batch size (number of documents)
+        :param learning_offset: SVI parameter (see online LDA paper)
+        :param learning_decay: SVI parameter (see online LDA paper)
+        :param num_workers: set to >1 for parallel implementation
+        """
         self.batch_size = batch_size
         self.learning_offset = learning_offset
         self.learning_decay = learning_decay
@@ -34,7 +51,6 @@ class DAPPER(object):
         self.process_noise = process_noise
         self.measurement_noise = measurement_noise
         self.regularization = regularization
-        self.normalization = normalization
         self.num_workers = num_workers
 
         self.num_topics = num_topics
@@ -187,17 +203,12 @@ class DAPPER(object):
             gradient[p] -= 0.5 * np.trace(sigma_inv.dot(S))
 
         new_doc_persona_param = self.step_size * (self.E_log_kappa[a, :] + gradient) + (1 - self.step_size) * doc_persona_param
-        # new_doc_tau = np.exp(new_doc_persona_param) / np.sum(np.exp(new_doc_persona_param))
         new_doc_tau = doc_tau * np.exp(new_doc_persona_param)
         new_doc_tau /= np.sum(new_doc_tau)
 
         return new_doc_tau, new_doc_persona_param
 
-    """=================================================================================================================
-            E-step and M-step of the Variational Inference algorithm
-    ================================================================================================================="""
-
-    def m_step_s(self, batch_size, num_docs_per_time):
+    def m_step(self, batch_size, num_docs_per_time):
         """
         Stochastic M-step: update the variational parameter for topics using a mini-batch of documents
         """
@@ -228,50 +239,27 @@ class DAPPER(object):
         beta /= np.sum(beta, axis=1, keepdims=True)
         self.log_beta = np.log(beta)
 
-        # beta = np.exp(dirichlet_expectation(self._lambda))
-        # beta /= np.sum(beta, axis=1, keepdims=True)
-
         # update the kappa terms
         new_delta = self.omega + (self.total_documents * self.ss.kappa / batch_size)
         self._delta = (1 - rhot) * self._delta + rhot * new_delta
         self.E_log_kappa = dirichlet_expectation(self._delta)
 
-        # update omega
-        # self.omega = self._delta.sum(axis=0) / self.num_authors
-        # logger.info('omega\n' + ' '.join([str(round(elt, 2)) for elt in self.omega]) + "\n")
-
         # estimate a new noisy estimate of alpha
         new_alpha_hat = self.estimate_alpha(num_docs_per_time)
-        # logger.info('new ahat\n' + matrix2str(new_alpha_hat[0:15, :, 0], 3))
 
         # update alpha hat using svi update rule
         self.alpha_hat = (1 - rhot) * self.alpha_hat + rhot * new_alpha_hat
-        # logger.info('svi ahat\n' + matrix2str(self.alpha_hat[0:15, :, 0], 3))
 
         # normalize alpha hat before applying kalman filter smoother
-        if self.normalization == 'softmax':
-            for p in range(self.num_personas):
-                try:
-                    self.alpha_hat[:, :, p] = softmax(self.alpha_hat[:, :, p], axis=1)
-                except Warning:
-                    for t in range(self.num_times):
-                        if np.any(np.abs(self.alpha_hat[t, :, p]) > 50.0):
-                            self.alpha_hat[t, :, p] /= (np.max(np.abs(self.alpha_hat[t, :, p])) / 50.0)
-                    self.alpha_hat[:, :, p] = softmax(self.alpha_hat[:, :, p], axis=1)
-            # logger.info('normal ahat\n' + matrix2str(self.alpha_hat[0:15, :, 0], 3))
-        elif self.normalization == "sum":
-            for p in range(self.num_personas):
-                self.alpha_hat[:, :, p] = sum_normalize(self.alpha_hat[:, :, p], axis=1)
-            # logger.info('normal ahat\n' + matrix2str(self.alpha_hat[0:15, :, 0], 3))
+        for p in range(self.num_personas):
+            self.alpha_hat[:, :, p] = sum_normalize(self.alpha_hat[:, :, p], axis=1)
 
         # kalman smoothing
         self.alpha = self.smooth_alpha()
-        # logger.info('smoothed norm\n' + matrix2str(self.alpha[0:15, :, 0], 3))
 
         # update priors mu0
         for k in range(self.num_topics):
             self.mu0[k] = np.sum(self.alpha[0, k, :]) * (1.0 / self.num_personas)
-        # logger.info('mu\n' + ' '.join([str(round(elt, 3)) for elt in self.mu0]) + '\n')
 
     def estimate_alpha(self, num_docs_per_time):
         """
@@ -433,8 +421,6 @@ class DAPPER(object):
         # term 3: - zeta_inv Sum( exp(gamma + vhat) ) + 1 - log(zeta)
         # use the fact that doc_zeta = np.sum(np.exp(doc_m+0.5*doc_v2)), to cancel the factors
         lhood += -1.0 * logsumexp(doc_m + 0.5 * doc_vsq) * np.sum(doc.counts)
-        # zeta = np.sum(np.exp(doc_m + 0.5 * doc_vsq))
-        # lhood += (-1.0 / zeta) * np.sum(np.exp(doc_m + doc_vsq * 0.5)) * np.sum(doc.counts) + 1 - np.log(zeta) * np.sum(doc.counts)
 
         # term 4: Sum(gamma * phi)
         lhood += np.sum(np.sum(np.exp(log_phi) * doc.counts, axis=1) * doc_m)
@@ -451,11 +437,10 @@ class DAPPER(object):
         return lhood
 
     def compute_word_lhood(self, doc, log_phi):
-        # lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.log_beta[:, doc.words])
         lhood = np.sum(np.exp(log_phi + np.log(doc.counts)) * self.E_log_beta[:, doc.words])
         return lhood
 
-    def em_step_s(self, docs, total_docs, check_model_lhood=True):
+    def em_step(self, docs, total_docs, check_model_lhood=True):
         """
         Performs stochastic EM-update for one iteration using a mini-batch of documents
         and compute the training log-likelihood
@@ -482,7 +467,7 @@ class DAPPER(object):
 
         # m-step
         clock_m_step = time.process_time()
-        self.m_step_s(batch_size=batch_size, num_docs_per_time=num_docs_per_time)
+        self.m_step(batch_size=batch_size, num_docs_per_time=num_docs_per_time)
         clock_m_step = time.process_time() - clock_m_step
 
         topic_lhood = self.compute_topic_lhood()
@@ -513,6 +498,7 @@ class DAPPER(object):
 
         queue_size, reallen = [0], 0
         batch_lhood, words_lhood = [0.0], [0.0]
+
         def process_result_queue():
             """
             clear result queue, merge intermediate SS
@@ -624,10 +610,6 @@ class DAPPER(object):
 
         return batch_lhood, words_lhood
 
-    """=================================================================================================================
-        Training and testing
-    ================================================================================================================="""
-
     def fit(self, corpus, random_beta=False, check_model_lhood=True):
         """
         Performs EM-update until reaching target average change in the log-likelihood
@@ -657,9 +639,9 @@ class DAPPER(object):
             finished_epoch = True
             for batch_id, doc_ids in enumerate(batches):
                 batch = [corpus.docs[d] for d in doc_ids]
-                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch,
-                                                                                  total_docs=corpus.total_documents,
-                                                                                  check_model_lhood=check_model_lhood)
+                train_model_lhood, train_words_lhood, batch_time = self.em_step(docs=batch,
+                                                                                total_docs=corpus.total_documents,
+                                                                                check_model_lhood=check_model_lhood)
 
                 train_model_pwll = train_model_lhood / corpus.total_words
                 train_words_pwll = train_words_lhood / np.sum([np.sum(d.counts) for d in batch])
@@ -802,9 +784,9 @@ class DAPPER(object):
             for batch_id, doc_ids in enumerate(batches):
                 # do an EM iteration on this batch
                 batch = [train_corpus.docs[d] for d in doc_ids]
-                train_model_lhood, train_words_lhood, batch_time = self.em_step_s(docs=batch,
-                                                                                  total_docs=train_corpus.total_documents,
-                                                                                  check_model_lhood=check_model_lhood)
+                train_model_lhood, train_words_lhood, batch_time = self.em_step(docs=batch,
+                                                                                total_docs=train_corpus.total_documents,
+                                                                                check_model_lhood=check_model_lhood)
 
                 # collect stats from EM iteration
                 train_model_pwll = train_model_lhood / train_corpus.total_words
@@ -984,7 +966,7 @@ class DAPPER(object):
                     time_val = self.times[t]
                     f.write("{}\t{}\t{}\t{}\n".format(t, time_val, p, '\t'.join([str(k) for k in self.alpha[t, :, p]])))
 
-    def save_convergnces(self, filename, results):
+    def save_convergences(self, filename, results):
         with open(filename, 'w') as f:
             f.write("em_iter\tbatch_iter\tmodel_log_lhood\tmodel_pwll\twords_pwll\tconvergence\tbatch_time\ttraining_time\tdocs_trained\n")
             for stats in results:
@@ -1008,7 +990,6 @@ class DAPPER(object):
             learning offset: {}
             learning decay: {:.2f}
             step size: {:.2f}
-            normalization method: {}
             max epochs: {}
             convergence criteria for local parameters: {:.2f}
             local parameter max iterations: {}
@@ -1016,7 +997,7 @@ class DAPPER(object):
                        self.measurement_noise, self.process_noise,
                        self.queue_size,
                        self.batch_size, self.learning_offset, self.learning_decay, self.step_size,
-                       self.normalization, self.max_epochs, self.local_convergence, self.max_local_iters)
+                       self.max_epochs, self.local_convergence, self.max_local_iters)
         return rval
 
 

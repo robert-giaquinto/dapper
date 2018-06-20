@@ -1,5 +1,6 @@
 # Dynamic Author-Persona Performed Exceedingly Rapidly (DAPPER) Topic Model #
 
+![DAPPER](../master/docs/images/dapper.png?raw=true)
 
 ## Introduction ##
 See /docs/dap_2018_arxiv.pdf for technical information on the dynamic author-persona topic model (DAP).

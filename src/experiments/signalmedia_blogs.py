@@ -18,8 +18,7 @@ def main():
                         default="test_signalmedia.dap")
     parser.add_argument('--vocab_file', type=str, help='Path to vocabulary file.',
                         default="signalmedia.bow.vocab")
-    parser.add_argument('--data_dir', type=str, help='directory where all data files reside.',
-                        default="../../data/signalmedia/blogs_aligned_3_30/")
+    parser.add_argument('--data_dir', type=str, help='directory where all data files reside.')
     parser.add_argument('--evaluate_every', type=int,
                         help="If given a test file, number of EM iterations between evaluations of test set. Default of 0 = evaluate after each epoch.")
     parser.add_argument('--max_training_minutes', type=float,
@@ -37,6 +36,9 @@ def main():
     args = parser.parse_args()
 
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
+    if args.data_dir is None:
+        data_dir = os.path.join(path_to_current_file, "../../data/signalmedia/blogs_aligned_3_30/")
+
     np.random.seed(2018)
 
     disable_log = False
@@ -50,19 +52,18 @@ def main():
     dap = DAPPER(num_topics=args.num_topics, num_personas=args.num_personas,
                  process_noise=args.process_noise, measurement_noise=args.measurement_noise,
                  regularization=args.regularization,
-                 normalization="sum",
                  max_epochs=args.max_epochs, max_training_minutes=args.max_training_minutes,
                  batch_size=args.batch_size,
-                 step_size=0.7, queue_size=1, learning_offset=10, learning_decay=0.7,
+                 step_size=0.7, learning_offset=10, learning_decay=0.7,
                  num_workers=args.num_workers)
 
-    if not os.path.exists(args.data_dir):
-        os.makedirs(args.data_dir)
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
 
-    # train = Corpus(input_file=data_dir + "signalmedia.dap", vocab_file=data_dir + "signalmedia.bow.vocab")
-    train = Corpus(input_file=args.data_dir + args.train_file, vocab_file=args.data_dir + args.vocab_file)
-    test = Corpus(input_file=args.data_dir + args.test_file,
-                  vocab_file=args.data_dir + args.vocab_file,
+    # train = Corpus(input_file=data_dir + "signalmedia.dap", vocab_file=data_dir + "signalmedia.bow.vocab")  # full
+    train = Corpus(input_file=data_dir + args.train_file, vocab_file=data_dir + args.vocab_file)
+    test = Corpus(input_file=data_dir + args.test_file,
+                  vocab_file=data_dir + args.vocab_file,
                   author2id=train.author2id)
 
     train_results, test_results = dap.fit_predict(train_corpus=train, test_corpus=test,
@@ -73,7 +74,7 @@ def main():
     print(dap)
 
     # save model output
-    results_dir = args.data_dir.replace("/data/", "/results/")
+    results_dir = data_dir.replace("/data/", "/results/")
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
 
@@ -86,8 +87,8 @@ def main():
     dap.save_topics(filename=results_dir + "topics_" + model_sig, topn=10)
     dap.save_author_personas(filename=results_dir + "personas_" + model_sig)
     dap.save_persona_topics(filename=results_dir + "alpha_" + model_sig)
-    dap.save_convergnces(filename=results_dir + "train_convergence_" + model_sig, results=train_results)
-    dap.save_convergnces(filename=results_dir + "test_convergence_" + model_sig, results=test_results)
+    dap.save_convergences(filename=results_dir + "train_convergence_" + model_sig, results=train_results)
+    dap.save_convergences(filename=results_dir + "test_convergence_" + model_sig, results=test_results)
 
 
 if __name__ == "__main__":
