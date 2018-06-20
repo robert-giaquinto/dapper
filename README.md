@@ -1,9 +1,14 @@
-# Dynamic Author-Persona Performed Exceedingly Rapidly (DAPPER) Topic Model #
+# DAPPER Topic Model #
 
 <img src="../master/docs/images/dapper.png" width="100">
 
+## Dynamic Author-Persona Performed Exceedingly Rapidly ##
+
+The DAPPER topic model is designed for multi-author corpora in which authors write over time. Unlike other temporal topic models, DAPPER doesn't model the change in language associated with a topic (e.g. Dynamic Topic Models) but instead models the trajectory of topics that an author discusses over time.
+
+
 ## Introduction ##
-See /docs/dap_2018_arxiv.pdf for technical information on the dynamic author-persona topic model (DAP).
+See [/docs/dap_2018_arxiv.pdf](https://github.com/robert-giaquinto/dapper/blob/master/docs/dap_2018_arxiv_acm.pdf) for technical information on the dynamic author-persona topic model (DAP).
 
 ## Getting Started ##
 1. Clone the repo:
@@ -49,16 +54,16 @@ See /docs/dap_2018_arxiv.pdf for technical information on the dynamic author-per
 
 5. Preparing data for the model
 
-   TODO: build tutorial for easily accessible dataset
+   See [Signal Media 1M](http://research.signalmedia.co/newsir16/signal-dataset.html) to download the Signal Media dataset.
+
+   See `/src/preprocessing/preprocess_signalmedia.py` for tools to prepare the Signal Media data. Or use the already preprocessed data included in this repository.
+
 
 6. Running the model
 
    See /scripts/ for examples of running the model and setting various model parameters.
 
 
-7. Getting data
-
-   See http://research.signalmedia.co/newsir16/signal-dataset.html for the signalmedia dataset. Codes for preprocessing this data are included in src/experiments/preprocess_signalmedia.py
 
 ## Project Structure ##
 * `docs/` - Documentation on the model, including derivation and papers related to the model.
