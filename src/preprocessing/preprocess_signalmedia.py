@@ -88,7 +88,7 @@ def compute_relative_dates(fname):
             fields = line.replace("\n", "").split("\t")
             arr = [fields[0], rel_dt, fields[2]]
             fout.write('\t'.join([str(s) for s in arr]) + "\n")
-
+    os.remove(tmp_file)
     return time_counts
 
 
@@ -349,6 +349,7 @@ def main():
     print("time counts", time_counts)
 
     # sort the filtered data by source and date
+    # TODO: use python to sort data in filtered_fname instead of bash
     cmd = """/bin/bash -c "sort %s -n -t $'\t' -k1,1 -k2,2 -o %s -S %s" """ % (filtered_fname, filtered_fname, "75%")
     subprocess.call(cmd, shell=True)
 
@@ -357,9 +358,13 @@ def main():
 
     # arrange data into DAP format
     dappify(time_counts, filtered_fname, corpus_fname, dap_all_fname)
+    os.remove(filtered_fname)
+    os.remove(corpus_fname)
 
     # split train test
     split_train_test(dap_all_fname, train_fname, test_fname, test_ratio=args.test_ratio)
+    os.remove(dap_all_fname)
+
 
 
 if __name__ == "__main__":

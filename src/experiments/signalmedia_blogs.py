@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--measurement_noise', type=float, default=0.8)
     parser.add_argument('--num_topics', type=int, default=75)
     parser.add_argument('--num_personas', type=int, default=25)
-    parser.add_argument('--regularization', type=float, default=0.1,
+    parser.add_argument('--regularization', type=float, default=0.2,
                         help="How much to penalize similar personas. Recommend [0, 0.5].")
     parser.add_argument('--batch_size', type=int, default=512,
                         help="Batch size. Set to -1 for full gradient updates, else stochastic mini-batches used.")
@@ -38,6 +38,8 @@ def main():
     path_to_current_file = os.path.abspath(os.path.dirname(__file__))
     if args.data_dir is None:
         data_dir = os.path.join(path_to_current_file, "../../data/signalmedia/blogs_aligned_3_30/")
+    else:
+        data_dir = args.data_dir
 
     np.random.seed(2018)
 
@@ -60,7 +62,6 @@ def main():
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
 
-    # train = Corpus(input_file=data_dir + "signalmedia.dap", vocab_file=data_dir + "signalmedia.bow.vocab")  # full
     train = Corpus(input_file=data_dir + args.train_file, vocab_file=data_dir + args.vocab_file)
     test = Corpus(input_file=data_dir + args.test_file,
                   vocab_file=data_dir + args.vocab_file,
